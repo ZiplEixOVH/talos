@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/openai/openai-go/v3"
@@ -13,13 +14,39 @@ import (
 
 func main() {
 	var prompt string
+	var listConvs bool
+	var _convDummy bool // dummy to let flag.Parse() accept -c; actual parsing is manual
+
 	flag.StringVar(&prompt, "p", "", "Legacy: Prompt to send to LLM in one-shot mode")
+	flag.BoolVar(&listConvs, "l", false, "List all conversations")
+	flag.BoolVar(&_convDummy, "c", false, "Load conversation (use -c for latest, -c <id> for specific)")
 	flag.Parse()
+
+	// Manually parse -c flag (supports -c without a value for "load latest")
+	convID, loadConv := parseConvFlag()
 
 	// Load settings from .talos
 	settings, err := loadSettings()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading settings: %v\n", err)
+	}
+
+	// List conversations with -l
+	if listConvs {
+		summaries, err := listConversations()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error listing conversations: %v\n", err)
+			os.Exit(1)
+		}
+		if len(summaries) == 0 {
+			fmt.Println("No conversations found.")
+			return
+		}
+		fmt.Println("Conversations:")
+		for _, s := range summaries {
+			fmt.Printf("  %s  (%d messages, %s)\n", s.ID, s.Messages, s.CreatedAt)
+		}
+		return
 	}
 
 	activeProv := settings.Providers[settings.CurrentProvider]
@@ -30,13 +57,64 @@ func main() {
 		return
 	}
 
-	m := newModel(client, settings)
+	// Handle -c flag for loading conversations
+	var (
+		initialMessages []openai.ChatCompletionMessageParamUnion
+		initialConvID   string
+	)
+
+	if loadConv {
+		if convID != "" {
+			// User provided a specific conversation ID
+			initialConvID = convID
+			initialMessages, err = loadConversation(initialConvID)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading conversation: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			// -c flag was passed without a value: load the latest conversation
+			initialConvID, initialMessages, err = getLatestConversation()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading latest conversation: %v\n", err)
+				os.Exit(1)
+			}
+		}
+	}
+
+	m := newModel(client, settings, initialMessages, initialConvID)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	m.program = p
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// parseConvFlag manually parses -c and -c <value> from os.Args,
+// since Go's flag package cannot distinguish "-c" from "-c value".
+func parseConvFlag() (id string, found bool) {
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		// Skip flag pairs handled by the flag package
+		if arg == "-p" || arg == "--prompt" {
+			i++ // skip value
+			continue
+		}
+		if arg == "-l" || arg == "--list" {
+			continue
+		}
+
+		if arg == "-c" || arg == "--conv" {
+			// Check if the next argument is a value (not starting with -)
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				return args[i+1], true
+			}
+			return "", true // -c without value: load latest
+		}
+	}
+	return "", false
 }
 
 func runLegacyOneShot(client openai.Client, settings Settings, prompt string) {

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/openai/openai-go/v3"
@@ -207,4 +209,86 @@ func saveConversation(convID string, messages []openai.ChatCompletionMessagePara
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+// ConversationSummary is a lightweight summary for listing conversations.
+type ConversationSummary struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+	Messages  int    `json:"messages"`
+}
+
+func listConversations() ([]ConversationSummary, error) {
+	dir := filepath.Join(".talos", "conversations")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var summaries []ConversationSummary
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		id := strings.TrimSuffix(entry.Name(), ".json")
+		convPath := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(convPath)
+		if err != nil {
+			continue
+		}
+		var conv Conversation
+		if err := json.Unmarshal(data, &conv); err != nil {
+			continue
+		}
+		summaries = append(summaries, ConversationSummary{
+			ID:        id,
+			CreatedAt: conv.CreatedAt,
+			Messages:  len(conv.Messages),
+		})
+	}
+
+	// Sort by CreatedAt descending (most recent first)
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].CreatedAt > summaries[j].CreatedAt
+	})
+
+	return summaries, nil
+}
+
+func loadConversation(convID string) ([]openai.ChatCompletionMessageParamUnion, error) {
+	dir := filepath.Join(".talos", "conversations")
+	path := filepath.Join(dir, fmt.Sprintf("%s.json", convID))
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("conversation '%s' not found: %w", convID, err)
+	}
+
+	var conv Conversation
+	if err := json.Unmarshal(data, &conv); err != nil {
+		return nil, fmt.Errorf("failed to parse conversation '%s': %w", convID, err)
+	}
+
+	return toOpenAIMessages(conv.Messages), nil
+}
+
+func getLatestConversation() (string, []openai.ChatCompletionMessageParamUnion, error) {
+	summaries, err := listConversations()
+	if err != nil {
+		return "", nil, err
+	}
+	if len(summaries) == 0 {
+		return "", nil, fmt.Errorf("no conversations found")
+	}
+
+	latestID := summaries[0].ID
+	messages, err := loadConversation(latestID)
+	if err != nil {
+		return "", nil, err
+	}
+	return latestID, messages, nil
 }

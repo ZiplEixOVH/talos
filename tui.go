@@ -274,7 +274,7 @@ type model struct {
 	mdRenderer *glamour.TermRenderer
 }
 
-func newModel(client openai.Client, settings Settings) *model {
+func newModel(client openai.Client, settings Settings, initialMessages []openai.ChatCompletionMessageParamUnion, initialConvID string) *model {
 	ta := textarea.New()
 	ta.Placeholder = "Message Talos..."
 	ta.Focus()
@@ -310,8 +310,20 @@ Le répertoire de travail actuel (CWD) est : %s.
 Tu as accès à des outils pour lire, écrire, lister, rechercher des fichiers, et exécuter des commandes via Bash.
 Utilise ces outils de manière ciblée, intelligente et sécurisée pour répondre aux demandes de l'utilisateur.`, cwd)
 
-	oaiMessages := []openai.ChatCompletionMessageParamUnion{
-		openai.SystemMessage(sysPrompt),
+	var oaiMessages []openai.ChatCompletionMessageParamUnion
+	var chatMessages []chatMessage
+	convID := fmt.Sprintf("conv_%d", time.Now().UnixNano())
+
+	if len(initialMessages) > 0 && initialConvID != "" {
+		// Loading an existing conversation
+		oaiMessages = initialMessages
+		convID = initialConvID
+		// Rebuild chat display from stored messages
+		chatMessages = rebuildChatDisplay(initialMessages)
+	} else {
+		oaiMessages = []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(sysPrompt),
+		}
 	}
 
 	m := &model{
@@ -320,11 +332,11 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
 		help:         h,
 		keys:         newKeyMap(),
 		state:        stateInput,
-		chatMessages: []chatMessage{},
+		chatMessages: chatMessages,
 		oaiMessages:  oaiMessages,
 		client:       client,
 		settings:     settings,
-		convID:       fmt.Sprintf("conv_%d", time.Now().UnixNano()),
+		convID:       convID,
 		toolQueue:    nil,
 		toolResults:  nil,
 	}
@@ -342,6 +354,45 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
 	}
 
 	return m
+}
+
+// rebuildChatDisplay converts a list of OpenAI message params into display chatMessages.
+func rebuildChatDisplay(messages []openai.ChatCompletionMessageParamUnion) []chatMessage {
+	var display []chatMessage
+	for _, msg := range messages {
+		jsonData, err := json.Marshal(msg)
+		if err != nil {
+			continue
+		}
+		var local LocalMessage
+		if err := json.Unmarshal(jsonData, &local); err != nil {
+			continue
+		}
+		switch local.Role {
+		case "system":
+			display = append(display, chatMessage{role: "system", content: local.Content})
+		case "user":
+			display = append(display, chatMessage{role: "user", content: local.Content})
+		case "assistant":
+			if len(local.ToolCalls) > 0 {
+				if local.Content != "" {
+					display = append(display, chatMessage{role: "thought", content: local.Content})
+				}
+				for _, tc := range local.ToolCalls {
+					paramVal := getToolParamValue(tc.Function.Name, tc.Function.Arguments)
+					display = append(display, chatMessage{
+						role:    "tool",
+						content: fmt.Sprintf("%s(%s)", tc.Function.Name, paramVal),
+					})
+				}
+			} else if local.Content != "" {
+				display = append(display, chatMessage{role: "assistant", content: local.Content})
+			}
+		case "tool":
+			// Skip individual tool results in the display; they're part of the conversation context
+		}
+	}
+	return display
 }
 
 func getCwd() (string, error) {
