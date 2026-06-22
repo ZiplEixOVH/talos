@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/manifoldco/promptui"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
@@ -111,15 +112,33 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
 			case "/model":
 				activeProvider := settings.Providers[settings.CurrentProvider]
 				if len(parts) < 2 {
-					fmt.Printf("Active model: %s\n", settings.CurrentModel)
-					fmt.Printf("Available models for provider '%s':\n", settings.CurrentProvider)
-					for _, mdl := range activeProvider.Models {
+					if len(activeProvider.Models) == 0 {
+						fmt.Println("No models configured for the current provider. Use '/provider add-model' to add one.")
+						break
+					}
+
+					activeIdx := 0
+					for i, mdl := range activeProvider.Models {
 						if mdl == settings.CurrentModel {
-							fmt.Printf("  * %s (active)\n", mdl)
-						} else {
-							fmt.Printf("  - %s\n", mdl)
+							activeIdx = i
+							break
 						}
 					}
+
+					prompt := promptui.Select{
+						Label:     "Select active model (Arrow keys to navigate, Enter to select)",
+						Items:     activeProvider.Models,
+						CursorPos: activeIdx,
+					}
+
+					_, selected, err := prompt.Run()
+					if err != nil {
+						break
+					}
+
+					settings.CurrentModel = selected
+					_ = saveSettings(settings)
+					fmt.Println(systemStyle.Render(fmt.Sprintf("Model changed to: %s", settings.CurrentModel)))
 				} else {
 					newModelName := parts[1]
 					settings.CurrentModel = newModelName
@@ -160,11 +179,39 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
 					subCmd := parts[1]
 					switch subCmd {
 					case "use":
+						var newName string
 						if len(parts) < 3 {
-							fmt.Println("Usage: /provider use <name>")
-							break
+							var provNames []string
+							for name := range settings.Providers {
+								provNames = append(provNames, name)
+							}
+							if len(provNames) == 0 {
+								fmt.Println("No providers configured.")
+								break
+							}
+
+							activeIdx := 0
+							for i, n := range provNames {
+								if n == settings.CurrentProvider {
+									activeIdx = i
+									break
+								}
+							}
+
+							prompt := promptui.Select{
+								Label:     "Select active provider (Arrow keys to navigate, Enter to select)",
+								Items:     provNames,
+								CursorPos: activeIdx,
+							}
+							_, selected, err := prompt.Run()
+							if err != nil {
+								break
+							}
+							newName = selected
+						} else {
+							newName = parts[2]
 						}
-						newName := parts[2]
+
 						prov, exists := settings.Providers[newName]
 						if !exists {
 							fmt.Printf("Provider '%s' does not exist. Use '/provider set' to configure it.\n", newName)
