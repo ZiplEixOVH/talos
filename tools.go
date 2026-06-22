@@ -20,21 +20,20 @@ var inReader io.Reader = os.Stdin
 type ToolCall func(args map[string]any) (result string)
 
 var toolCalls = map[string]ToolCall{
-	"Read":         handleReadTool,
-	"Write":        handleWriteTool,
-	"Bash":         handleBashTool,
-	"List":         handleListTool,
-	"FetchWebPage": handleWebSearchTool,
-	"GoogleSearch": handleGoogleSearchTool,
-	"FileSearch":   handleFileSearchTool,
-	"ReadRange":    handleReadRangeTool,
+	"Read":          handleReadTool,
+	"Write":         handleWriteTool,
+	"Bash":          handleBashTool,
+	"List":          handleListTool,
+	"FetchWebPage":  handleWebSearchTool,
+	"GoogleSearch":  handleGoogleSearchTool,
+	"FileSearch":    handleFileSearchTool,
+	"ReadRange":     handleReadRangeTool,
 	"ReplaceInFile": handleReplaceInFileTool,
 	"AskUser":       handleAskUserTool,
 }
 
 func handleReadTool(args map[string]any) string {
 	filePath := args["file_path"].(string)
-	fmt.Printf("Reading file '%s'...\n", filePath)
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading file: %v\n", err)
@@ -45,7 +44,6 @@ func handleReadTool(args map[string]any) string {
 
 func handleWriteTool(args map[string]any) string {
 	filePath := args["file_path"].(string)
-	fmt.Printf("Writing file '%s'...\n", filePath)
 	content := args["content"].(string)
 	err := os.WriteFile(filePath, []byte(content), 0644)
 	if err != nil {
@@ -57,7 +55,6 @@ func handleWriteTool(args map[string]any) string {
 
 func handleBashTool(args map[string]any) string {
 	command := args["command"].(string)
-	fmt.Printf("Running command: '%s'...\n", command)
 	stdout, stderr := executeShellCommand(command)
 	if stderr != "" {
 		return stderr
@@ -68,7 +65,6 @@ func handleBashTool(args map[string]any) string {
 
 func handleListTool(args map[string]any) string {
 	directory := args["directory"].(string)
-	fmt.Printf("Listing directory '%s'...\n", directory)
 	files, err := os.ReadDir(directory)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error listing directory: %v\n", err)
@@ -122,7 +118,6 @@ func handleListTool(args map[string]any) string {
 
 func handleWebSearchTool(args map[string]any) string {
 	url := args["url"].(string)
-	fmt.Printf("Fetching webpage: '%s'...\n", url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return fmt.Sprintf("error fetching page: %v", err)
@@ -159,7 +154,6 @@ func handleGoogleSearchTool(args map[string]any) string {
 	if !ok {
 		return "error: query parameter is missing or not a string"
 	}
-	fmt.Printf("Searching for: '%s'...\n", query)
 
 	searchURL := "https://html.duckduckgo.com/html/?q=" + url.QueryEscape(query)
 	req, err := http.NewRequest("GET", searchURL, nil)
@@ -252,8 +246,6 @@ func handleFileSearchTool(args map[string]any) string {
 	if !ok {
 		return "error: directory parameter is missing or not a string"
 	}
-
-	fmt.Printf("Searching for pattern '%s' in '%s'...\n", pattern, dirPath)
 
 	type Match struct {
 		FilePath string `json:"file_path"`
@@ -379,8 +371,6 @@ func handleReadRangeTool(args map[string]any) string {
 		}
 	}
 
-	fmt.Printf("Reading file '%s' from line %d to %d...\n", filePath, startLine, endLine)
-
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Sprintf("error opening file: %v", err)
@@ -420,8 +410,6 @@ func handleReplaceInFileTool(args map[string]any) string {
 	if !ok {
 		return "error: new_content parameter is missing or not a string"
 	}
-
-	fmt.Printf("Replacing content in file '%s'...\n", filePath)
 
 	contentBytes, err := os.ReadFile(filePath)
 	if err != nil {
@@ -505,6 +493,3 @@ func handleAskUserTool(args map[string]any) string {
 		fmt.Println("Invalid selection. Please try again.")
 	}
 }
-
-
-
