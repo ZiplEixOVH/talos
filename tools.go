@@ -18,6 +18,9 @@ import (
 
 var inReader io.Reader = os.Stdin
 
+// AskUserHandler is set by the TUI to redirect interactive tool calls into the Bubble Tea event loop.
+var AskUserHandler func(question string, options []string) string
+
 type ToolCall func(args map[string]any) (result string)
 
 var toolCalls = map[string]ToolCall{
@@ -504,6 +507,10 @@ func handleAskUserTool(args map[string]any) string {
 
 	if len(options) == 0 {
 		return "error: options parameter must be a non-empty array of strings"
+	}
+
+	if AskUserHandler != nil {
+		return AskUserHandler(question, options)
 	}
 
 	fmt.Println("\n=================== TALOS INTERACTIVE QUESTION ===================")
