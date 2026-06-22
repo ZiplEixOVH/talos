@@ -26,6 +26,7 @@ import (
 const (
 	stateInput = iota
 	stateLoading
+	stateExecutingTools
 	stateSelectModel
 	stateSelectProvider
 	stateAskUser
@@ -163,6 +164,12 @@ type askUserRequestMsg struct {
 	resultCh chan string
 }
 
+type toolResultMsg struct {
+	result     string
+	toolCallID string
+	toolName   string
+}
+
 // ─── Key bindings ───────────────────────────────────────────────────────────
 
 type keyMap struct {
@@ -254,6 +261,11 @@ type model struct {
 	askIndex      int
 	askResultChan chan string
 
+	// Tool execution queue — process tools one at a time in the event loop
+	toolQueue      []openai.ChatCompletionMessageToolCallUnion
+	toolResults    []openai.ChatCompletionMessageParamUnion
+	toolQueueIndex int
+
 	// Glamour renderer
 	mdRenderer *glamour.TermRenderer
 }
@@ -309,6 +321,8 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
 		client:       client,
 		settings:     settings,
 		convID:       fmt.Sprintf("conv_%d", time.Now().UnixNano()),
+		toolQueue:    nil,
+		toolResults:  nil,
 	}
 
 	AskUserHandler = func(question string, options []string) string {
@@ -381,11 +395,36 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.askResultChan = msg.resultCh
 		return m, nil
 
+	case toolResultMsg:
+		// Append this tool result and process the next tool in queue
+		m.toolResults = append(m.toolResults, openai.ToolMessage(msg.result, msg.toolCallID))
+		m.toolQueueIndex++
+		if m.toolQueueIndex < len(m.toolQueue) {
+			// More tools to execute
+			return m, m.executeNextToolCmd()
+		}
+		// All tools executed — send results back to the model
+		m.state = stateLoading
+		m.oaiMessages = append(m.oaiMessages, m.toolResults...)
+		m.toolQueue = nil
+		m.toolResults = nil
+		m.toolQueueIndex = 0
+		_ = saveConversation(m.convID, m.oaiMessages)
+		return m, m.startStreaming()
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		if (m.state == stateLoading && m.streamBuf.Len() == 0) || m.state == stateExecutingTools {
+			m.updateViewport()
+		}
+		return m, cmd
+
 	case tea.KeyMsg:
 		switch m.state {
 		case stateInput:
 			return m.updateInput(msg)
-		case stateLoading:
+		case stateLoading, stateExecutingTools:
 			return m.updateLoading(msg)
 		case stateSelectModel, stateSelectProvider:
 			return m.updateSelect(msg)
@@ -394,16 +433,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Update sub-components
+	// Always update the spinner model, regardless of state,
+	// so the spinner.Tick chain stays alive.
+	// The spinner only advances on spinner.TickMsg, so this is harmless
+	// when the spinner is not visible.
+	var spinnerCmd tea.Cmd
+	m.spinner, spinnerCmd = m.spinner.Update(msg)
+	cmds = append(cmds, spinnerCmd)
+
+	// Update textarea only in input state
 	if m.state == stateInput {
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
-	if m.state == stateLoading {
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -944,10 +985,15 @@ func (m *model) handleStreamDone(msg streamDoneMsg) tea.Cmd {
 
 		_ = saveConversation(m.convID, m.oaiMessages)
 
+		// Set up the tool queue and start executing one by one
+		m.toolQueue = msg.toolCalls
+		m.toolResults = nil
+		m.toolQueueIndex = 0
+		m.state = stateExecutingTools
 		m.streamBuf.Reset()
 		m.updateViewport()
 		m.viewport.GotoBottom()
-		return m.runToolsCmd(msg.toolCalls)
+		return m.executeNextToolCmd()
 	}
 
 	m.state = stateInput
@@ -968,14 +1014,21 @@ func (m *model) handleStreamDone(msg streamDoneMsg) tea.Cmd {
 	return nil
 }
 
-func (m *model) runToolsCmd(toolCalls []openai.ChatCompletionMessageToolCallUnion) tea.Cmd {
+// executeNextToolCmd runs one tool at a time via the event loop,
+// so the spinner/animation stays alive between tool calls.
+func (m *model) executeNextToolCmd() tea.Cmd {
+	if m.toolQueueIndex >= len(m.toolQueue) {
+		return nil
+	}
+	tc := m.toolQueue[m.toolQueueIndex]
 	return func() tea.Msg {
-		var results []openai.ChatCompletionMessageParamUnion
-		for _, tc := range toolCalls {
-			result, toolCallID := handleToolCall(tc)
-			results = append(results, openai.ToolMessage(result, toolCallID))
+		// Execute synchronously (blocking is fine here since this runs in a goroutine)
+		result, toolCallID := handleToolCall(tc)
+		return toolResultMsg{
+			result:     result,
+			toolCallID: toolCallID,
+			toolName:   tc.Function.Name,
 		}
-		return toolResultsMsg{results: results}
 	}
 }
 
@@ -1066,12 +1119,19 @@ func (m *model) updateViewport() {
 	if m.state == stateLoading {
 		sb.WriteString("\n")
 		if m.streamBuf.Len() > 0 {
-			sb.WriteString(m.streamBuf.String())
+			sb.WriteString(wrapText(m.streamBuf.String(), m.width-4))
 		} else {
 			sb.WriteString("  ")
 			sb.WriteString(m.spinner.View())
 			sb.WriteString(lipgloss.NewStyle().Foreground(dimColor).Render(" Thinking..."))
 		}
+	}
+
+	if m.state == stateExecutingTools {
+		sb.WriteString("\n")
+		sb.WriteString("  ")
+		sb.WriteString(m.spinner.View())
+		sb.WriteString(lipgloss.NewStyle().Foreground(dimColor).Render(" Executing tools..."))
 	}
 
 	m.viewport.SetContent(sb.String())
@@ -1120,9 +1180,8 @@ func (m *model) View() string {
 	// Input area
 	if m.state == stateInput {
 		sections = append(sections, m.textarea.View())
-	} else if m.state == stateLoading {
-		loadingText := lipgloss.NewStyle().Foreground(dimColor).Italic(true).Render("  streaming...")
-		sections = append(sections, loadingText)
+	} else {
+		sections = append(sections, "")
 	}
 
 	// Help bar
@@ -1244,4 +1303,52 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func wrapText(text string, limit int) string {
+	if limit <= 0 {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = wrapLine(line, limit)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func wrapLine(line string, limit int) string {
+	if len(line) <= limit {
+		return line
+	}
+
+	var sb strings.Builder
+	runes := []rune(line)
+	start := 0
+
+	for start < len(runes) {
+		if len(runes)-start <= limit {
+			sb.WriteString(string(runes[start:]))
+			break
+		}
+
+		end := start + limit
+		spaceIdx := -1
+		for i := end; i > start; i-- {
+			if runes[i] == ' ' || runes[i] == '\t' {
+				spaceIdx = i
+				break
+			}
+		}
+
+		if spaceIdx != -1 {
+			sb.WriteString(string(runes[start:spaceIdx]))
+			sb.WriteString("\n")
+			start = spaceIdx + 1
+		} else {
+			sb.WriteString(string(runes[start:end]))
+			sb.WriteString("\n")
+			start = end
+		}
+	}
+	return sb.String()
 }
