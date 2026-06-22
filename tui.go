@@ -272,6 +272,10 @@ type model struct {
 
 	// Glamour renderer
 	mdRenderer *glamour.TermRenderer
+
+	// Context for cancelling streaming/tool execution
+	cancelCtx  context.Context
+	cancelFunc context.CancelFunc
 }
 
 func newModel(client openai.Client, settings Settings, initialMessages []openai.ChatCompletionMessageParamUnion, initialConvID string) *model {
@@ -340,6 +344,8 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
 		toolQueue:    nil,
 		toolResults:  nil,
 	}
+
+	m.cancelCtx, m.cancelFunc = context.WithCancel(context.Background())
 
 	AskUserHandler = func(question string, options []string) string {
 		ch := make(chan string)
@@ -428,6 +434,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleStreamDone(msg)
 
 	case streamErrMsg:
+		// If we've already been cancelled (state back to input), ignore the error
+		if m.state != stateLoading && m.state != stateExecutingTools {
+			return m, nil
+		}
 		m.state = stateInput
 		m.chatMessages = append(m.chatMessages, chatMessage{
 			role:    "error",
@@ -451,6 +461,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case toolResultMsg:
+		// Ignore tool results if we've been cancelled
+		if m.state != stateExecutingTools {
+			return m, nil
+		}
 		// Append this tool result and process the next tool in queue
 		m.toolResults = append(m.toolResults, openai.ToolMessage(msg.result, msg.toolCallID))
 		m.toolQueueIndex++
@@ -617,7 +631,22 @@ func filterCommands(input string) []slashCommand {
 
 func (m *model) updateLoading(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, m.keys.Quit) {
-		return m, tea.Quit
+		// Cancel the current streaming/tool execution and return to input
+		m.cancelFunc()
+		m.state = stateInput
+		m.streamBuf.Reset()
+		m.toolQueue = nil
+		m.toolResults = nil
+		m.toolQueueIndex = 0
+		// Re-create cancel context for next operation
+		m.cancelCtx, m.cancelFunc = context.WithCancel(context.Background())
+		m.chatMessages = append(m.chatMessages, chatMessage{
+			role:    "system",
+			content: "Cancelled.",
+		})
+		m.updateViewport()
+		m.viewport.GotoBottom()
+		return m, nil
 	}
 	return m, nil
 }
@@ -960,9 +989,9 @@ func (m *model) startStreaming() tea.Cmd {
 	copy(messages, m.oaiMessages)
 	modelName := m.settings.CurrentModel
 	p := m.program
+	ctx := m.cancelCtx
 
 	return func() tea.Msg {
-		ctx := context.Background()
 		params := openai.ChatCompletionNewParams{
 			Model:    openai.ChatModel(modelName),
 			Messages: messages,
@@ -1083,13 +1112,19 @@ func (m *model) executeNextToolCmd() tea.Cmd {
 		return nil
 	}
 	tc := m.toolQueue[m.toolQueueIndex]
+	ctx := m.cancelCtx
 	return func() tea.Msg {
-		// Execute synchronously (blocking is fine here since this runs in a goroutine)
-		result, toolCallID := handleToolCall(tc)
-		return toolResultMsg{
-			result:     result,
-			toolCallID: toolCallID,
-			toolName:   tc.Function.Name,
+		select {
+		case <-ctx.Done():
+			return streamErrMsg{err: fmt.Errorf("cancelled")}
+		default:
+			// Execute synchronously (blocking is fine here since this runs in a goroutine)
+			result, toolCallID := handleToolCall(tc)
+			return toolResultMsg{
+				result:     result,
+				toolCallID: toolCallID,
+				toolName:   tc.Function.Name,
+			}
 		}
 	}
 }
