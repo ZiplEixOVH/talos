@@ -6,9 +6,14 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/joho/godotenv"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
+
+func init() {
+	godotenv.Load()
+}
 
 func main() {
 	var prompt string
@@ -19,14 +24,14 @@ func main() {
 		panic("Prompt must not be empty")
 	}
 
-	apiKey := "fake_api_key"
+	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	baseUrl := os.Getenv("OPENROUTER_BASE_URL")
 	if baseUrl == "" {
 		baseUrl = "http://localhost:11434/v1"
 	}
 
 	if apiKey == "" {
-		panic("Env variable OPENROUTER_API_KEY not found")
+		apiKey = "fake_api_key_for_local_testing"
 	}
 
 	client := openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseUrl))
@@ -58,9 +63,14 @@ func main() {
 }
 
 func callApi(client openai.Client, messages []openai.ChatCompletionMessageParamUnion) *openai.ChatCompletion {
+	modelName := os.Getenv("MODEL_NAME")
+	if modelName == "" {
+		modelName = "gemma4:12b"
+	}
+
 	resp, err := client.Chat.Completions.New(context.Background(),
 		openai.ChatCompletionNewParams{
-			Model:    "gemma4:12b",
+			Model:    modelName,
 			Messages: messages,
 			Tools: []openai.ChatCompletionToolUnionParam{
 				openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
