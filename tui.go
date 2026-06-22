@@ -78,6 +78,10 @@ var (
 	systemMsgStyle = lipgloss.NewStyle().
 			Foreground(subtleColor)
 
+	thoughtStyle = lipgloss.NewStyle().
+			Italic(true).
+			Foreground(subtleColor)
+
 	// Suggestions
 	suggestionStyle = lipgloss.NewStyle().
 			Foreground(textColor).
@@ -975,6 +979,13 @@ func (m *model) handleStreamDone(msg streamDoneMsg) tea.Cmd {
 			OfAssistant: &assistantParam,
 		})
 
+		if msg.content != "" {
+			m.chatMessages = append(m.chatMessages, chatMessage{
+				role:    "thought",
+				content: msg.content,
+			})
+		}
+
 		for _, tc := range msg.toolCalls {
 			paramVal := getToolParamValue(tc.Function.Name, tc.Function.Arguments)
 			m.chatMessages = append(m.chatMessages, chatMessage{
@@ -1091,6 +1102,16 @@ func (m *model) updateViewport() {
 				}
 			}
 			sb.WriteString(rendered)
+			sb.WriteString("\n")
+		case "thought":
+			sb.WriteString("\n")
+			rendered := msg.content
+			if m.mdRenderer != nil {
+				if md, err := m.mdRenderer.Render(msg.content); err == nil {
+					rendered = strings.TrimRight(md, "\n")
+				}
+			}
+			sb.WriteString(thoughtStyle.Render(rendered))
 			sb.WriteString("\n")
 		case "tool":
 			// Compact tool display: ToolName(param) in dim style
