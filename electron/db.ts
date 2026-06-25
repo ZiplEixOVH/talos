@@ -163,6 +163,20 @@ export function deleteChat(id: string): Promise<void> {
   });
 }
 
+export function renameChat(id: string, title: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!db) return reject(new Error('Database not initialized'));
+    db.run(
+      `UPDATE chats SET title = ? WHERE id = ?`,
+      [title, id],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      }
+    );
+  });
+}
+
 // ==========================================
 // MESSAGES DATABASE METHODS
 // ==========================================

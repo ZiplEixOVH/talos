@@ -13,6 +13,7 @@ declare global {
 			getChats: () => Promise<Array<{ id: string; title: string; created_at: number }>>;
 			createChat: (id: string, title: string) => Promise<void>;
 			deleteChat: (id: string) => Promise<void>;
+			renameChat: (id: string, title: string) => Promise<void>;
 			
 			getProviders: () => Promise<Array<{ id: string; name: string; base_url: string; api_key: string }>>;
 			saveProvider: (id: string, name: string, baseUrl: string, apiKey: string) => Promise<void>;

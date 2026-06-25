@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { OpenAI } from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, getChats, createChat, deleteChat, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, getSetting, setSetting } from './db';
+import { initDb, getChats, createChat, deleteChat, renameChat, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, getSetting, setSetting } from './db';
 import { getOpenAITools, executeTool } from './tools';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -47,6 +47,10 @@ ipcMain.handle('chats:create', async (_, id: string, title: string) => {
 
 ipcMain.handle('chats:delete', async (_, id: string) => {
   return await deleteChat(id);
+});
+
+ipcMain.handle('chats:rename', async (_, id: string, title: string) => {
+  return await renameChat(id, title);
 });
 
 // Handlers pour les Providers et Modèles
