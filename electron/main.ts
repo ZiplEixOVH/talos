@@ -162,14 +162,23 @@ ipcMain.on('openai:chat-stream-start', async (event, providerId: string, model: 
       baseURL: baseUrl,
     });
 
-    // Assainir l'historique : convertir les anciens résultats d'outils (role: 'tool')
-    // en messages système afin d'éviter les erreurs de structure de l'API OpenAI
-    const apiMessages = chatMessages.map((m: any) => {
-      if (m.role === 'tool') {
-        return { role: 'system', content: `[Sortie outil historique] : ${m.content}` };
-      }
-      return { role: m.role, content: m.content };
-    });
+    // Définir le prompt système dynamique avec le CWD actuel
+    const currentCwd = process.cwd();
+    const systemPrompt = `Tu es Talos, un assistant de code intelligent.
+Le répertoire de travail actuel (CWD) est : ${currentCwd}.
+Tu as accès à des outils pour lire, écrire, lister, rechercher des fichiers, et exécuter des commandes via Bash.
+Utilise ces outils de manière ciblée, intelligente et sécurisée pour répondre aux demandes de l'utilisateur.`;
+
+    // Assainir l'historique et injecter le prompt système
+    const apiMessages = [
+      { role: 'system', content: systemPrompt },
+      ...chatMessages.map((m: any) => {
+        if (m.role === 'tool') {
+          return { role: 'system', content: `[Sortie outil historique] : ${m.content}` };
+        }
+        return { role: m.role, content: m.content };
+      })
+    ];
 
     let continueAgentLoop = true;
 
