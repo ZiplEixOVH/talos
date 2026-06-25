@@ -31,6 +31,7 @@
   let cwd = $state('');
   let activeProviderId = $state('ollama');
   let activeModel = $state('');
+  let isSettingsLoading = $state(true);
 
   // Pièces jointes
   let attachedFiles = $state<string[]>([]);
@@ -86,6 +87,7 @@
     } else {
       loadSettingsFromLocalStorage();
     }
+    isSettingsLoading = false;
   }
 
   function loadSettingsFromLocalStorage() {
@@ -462,13 +464,15 @@
 
         <span class="text-slate-800">|</span>
 
-        <!-- Model Selector popover with text variant -->
-        <ModelSelector 
-          bind:activeProviderId 
-          bind:activeModel 
-          variant="text"
-          onSelect={handleSelectModel} 
-        />
+        {#if !isSettingsLoading}
+          <!-- Model Selector popover with text variant -->
+          <ModelSelector 
+            bind:activeProviderId 
+            bind:activeModel 
+            variant="text"
+            onSelect={handleSelectModel} 
+          />
+        {/if}
 
         <span class="text-slate-800">|</span>
 
