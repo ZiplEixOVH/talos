@@ -519,6 +519,36 @@ export function handleReplaceInFileTool(args: any): string {
   }
 }
 
+const primaryParamNames: Record<string, string> = {
+  Read: 'file_path',
+  Write: 'file_path',
+  Mkdir: 'directory_path',
+  Bash: 'command',
+  List: 'directory',
+  Tree: 'directory',
+  FetchWebPage: 'url',
+  GoogleSearch: 'query',
+  FileSearch: 'pattern',
+  ReadRange: 'file_path',
+  ReplaceInFile: 'file_path'
+};
+
+export function getToolParamValue(name: string, args: any): string {
+  if (!args) return '';
+  const key = primaryParamNames[name];
+  if (key && args[key] !== undefined) {
+    const val = args[key];
+    return typeof val === 'string' ? val : String(val);
+  }
+  // Fallback: return first parameter value found
+  const keys = Object.keys(args);
+  if (keys.length > 0) {
+    const val = args[keys[0]];
+    return typeof val === 'string' ? val : String(val);
+  }
+  return '';
+}
+
 // Dispatch tool execution by name
 export async function executeTool(name: string, args: any): Promise<string> {
   switch (name) {

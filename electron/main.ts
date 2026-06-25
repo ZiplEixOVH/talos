@@ -3,7 +3,7 @@ import { OpenAI } from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDb, getChats, createChat, deleteChat, renameChat, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, getSetting, setSetting } from './db';
-import { getOpenAITools, executeTool } from './tools';
+import { getOpenAITools, executeTool, getToolParamValue } from './tools';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -264,10 +264,22 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
           tool_calls: actualToolCalls
         });
 
+        // Enregistrer le texte préliminaire de l'assistant (s'il existe) dans SQLite
+        if (fullText) {
+          await addMessage(currentRequestId, chatId, 'assistant', fullText);
+        }
+
         // 1. Synthétiser l'appel d'outil sous forme textuelle lisible pour SQLite & l'IHM Svelte
         const toolCallSummaries = actualToolCalls.map(tc => {
-          return `🔧 **Outil** : \`${tc.function.name}(${tc.function.arguments.trim()})\``;
-        }).join('\n');
+          let args: any = {};
+          try {
+            args = JSON.parse(tc.function.arguments);
+          } catch (e) {
+            // Arguments JSON tronqués/malformés
+          }
+          const paramVal = getToolParamValue(tc.function.name, args);
+          return `\`${tc.function.name}(${paramVal})\``;
+        }).join('\n\n');
 
         const assistantToolMsgId = `msg-${Math.random().toString(36).substring(2, 9)}`;
         await addMessage(assistantToolMsgId, chatId, 'assistant', toolCallSummaries);

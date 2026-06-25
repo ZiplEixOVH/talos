@@ -226,11 +226,11 @@
 
     // S'assurer qu'un modèle est sélectionné
     if (!activeModel) {
-      messages.push({
+      messages = [...messages, {
         id: `err-${Date.now()}`,
         role: 'assistant',
         content: 'Veuillez sélectionner un modèle dans les outils au bas de l\'écran avant d\'envoyer un message.'
-      });
+      }];
       await scrollToBottom();
       return;
     }
@@ -246,7 +246,7 @@
     const userMsg = { id: userMsgId, role: 'user', content: textWithFiles };
 
     // Ajout à l'interface
-    messages.push(userMsg);
+    messages = [...messages, userMsg];
     
     // Sauvegarde en base
     if (window.talosAPI) {
@@ -272,7 +272,7 @@
         
         const aiMsgId = `msg-${Math.random().toString(36).substring(2, 9)}`;
         const assistantMsg = { id: aiMsgId, role: 'assistant', content: '' };
-        messages.push(assistantMsg);
+        messages = [...messages, assistantMsg];
         await scrollToBottom();
 
         // Nettoyer les abonnements précédents avant de démarrer un nouveau stream
@@ -286,6 +286,7 @@
                 ...messages[idx],
                 content: messages[idx].content + data.text
               };
+              messages = [...messages]; // Force Svelte reactivity update
               if (isThinking) {
                 isThinking = false;
               }
@@ -312,6 +313,7 @@
                 ...messages[idx],
                 content: messages[idx].content + `\n\n*(Erreur lors du streaming : ${data.error})*`
               };
+              messages = [...messages]; // Force Svelte reactivity update
             }
             scrollToBottom();
           }
@@ -321,9 +323,10 @@
           if (data.chatId === chatId) {
             const idx = messages.findIndex(m => m.id === data.id);
             if (idx === -1) {
-              messages.push(data);
+              messages = [...messages, data]; // Force Svelte reactivity update on push
             } else {
               messages[idx] = data;
+              messages = [...messages]; // Force Svelte reactivity update on modification
             }
             if (isThinking) {
               isThinking = false;
@@ -342,7 +345,7 @@
         const content = `[Simulation Fallback Browser]\nModèle sélectionné : ${activeModel}\nFournisseur : ${activeProviderId}\nDossier de travail : ${cwd}\n\nVotre message a été reçu ! Pour exécuter de vrais appels d'API, veuillez lancer l'application avec Electron et configurer un fournisseur de clés.`;
         const assistantMsg = { id: aiMsgId, role: 'assistant', content };
         
-        messages.push(assistantMsg);
+        messages = [...messages, assistantMsg];
         saveMessageToLocalStorage(chatId, assistantMsg);
         isThinking = false;
         await scrollToBottom();
@@ -372,7 +375,7 @@
     bind:this={chatContainer}
     class="flex-1 overflow-y-auto px-8 py-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-900 scrollbar-track-transparent"
   >
-    {#if messages.length === 0}
+    {#if messages.filter(m => m.role !== 'tool' && m.content !== '').length === 0}
       <div class="h-full flex flex-col items-center justify-center text-center py-20 text-slate-500 space-y-3">
         <div class="p-4 bg-slate-900/40 rounded-full border border-slate-900/60 text-slate-400">
           <Sparkles size={32} />
@@ -383,7 +386,7 @@
         </div>
       </div>
     {:else}
-      {#each messages as msg (msg.id)}
+      {#each messages.filter(m => m.role !== 'tool' && m.content !== '') as msg (msg.id)}
         <div class="flex w-full {msg.role === 'user' ? 'justify-end' : 'justify-start'}">
           {#if msg.role === 'user'}
             <!-- User Message Bubble (aligned right) -->
