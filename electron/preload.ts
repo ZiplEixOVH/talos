@@ -23,4 +23,31 @@ contextBridge.exposeInMainWorld("talosAPI", {
   selectCwd: () => ipcRenderer.invoke('cwd:select'),
   
   chat: (providerId: string, model: string, chatMessages: any[]) => ipcRenderer.invoke('openai:chat', providerId, model, chatMessages),
+  
+  startChatStream: (providerId: string, model: string, chatMessages: any[], chatId: string, requestId: string) => 
+    ipcRenderer.send('openai:chat-stream-start', providerId, model, chatMessages, chatId, requestId),
+    
+  onChatStreamChunk: (callback: (data: { chatId: string; requestId: string; text: string }) => void) => {
+    const subscription = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('openai:chat-stream-chunk', subscription);
+    return () => {
+      ipcRenderer.off('openai:chat-stream-chunk', subscription);
+    };
+  },
+  
+  onChatStreamEnd: (callback: (data: { chatId: string; requestId: string }) => void) => {
+    const subscription = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('openai:chat-stream-end', subscription);
+    return () => {
+      ipcRenderer.off('openai:chat-stream-end', subscription);
+    };
+  },
+  
+  onChatStreamError: (callback: (data: { chatId: string; requestId: string; error: string }) => void) => {
+    const subscription = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('openai:chat-stream-error', subscription);
+    return () => {
+      ipcRenderer.off('openai:chat-stream-error', subscription);
+    };
+  },
 });
