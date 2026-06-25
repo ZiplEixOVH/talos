@@ -280,16 +280,19 @@
         clearStreamSubscriptions();
 
         const unsubChunk = window.talosAPI.onChatStreamChunk((data) => {
+          console.log('[DEBUG] onChatStreamChunk received:', data);
           if (data.chatId === chatId) {
             const idx = messages.findIndex(m => m.id === data.requestId);
+            console.log('[DEBUG] findIndex for', data.requestId, 'result:', idx);
             if (idx !== -1) {
               messages[idx] = {
                 ...messages[idx],
                 content: messages[idx].content + data.text
               };
               messages = [...messages]; // Force Svelte reactivity update
+              console.log('[DEBUG] Updated message content:', messages[idx].content);
             } else {
-              // Création défensive si l'identifiant n'existe pas encore dans notre liste
+              console.log('[DEBUG] Creating new message defensively for:', data.requestId);
               messages = [...messages, {
                 id: data.requestId,
                 role: 'assistant',
@@ -304,6 +307,7 @@
         });
 
         const unsubEnd = window.talosAPI.onChatStreamEnd((data) => {
+          console.log('[DEBUG] onChatStreamEnd received:', data);
           if (data.chatId === chatId) {
             clearStreamSubscriptions();
             thinkingStatus = '';
@@ -312,6 +316,7 @@
         });
 
         const unsubError = window.talosAPI.onChatStreamError((data) => {
+          console.log('[DEBUG] onChatStreamError received:', data);
           if (data.chatId === chatId) {
             clearStreamSubscriptions();
             thinkingStatus = '';
@@ -328,8 +333,10 @@
         });
 
         const unsubToolMessage = window.talosAPI.onChatToolMessage((data) => {
+          console.log('[DEBUG] onChatToolMessage received:', data);
           if (data.chatId === chatId) {
             const idx = messages.findIndex(m => m.id === data.id);
+            console.log('[DEBUG] findIndex for tool msg', data.id, 'result:', idx);
             if (idx === -1) {
               messages = [...messages, data]; // Force Svelte reactivity update on push
             } else {
