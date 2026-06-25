@@ -50,4 +50,12 @@ contextBridge.exposeInMainWorld("talosAPI", {
       ipcRenderer.off('openai:chat-stream-error', subscription);
     };
   },
+  
+  onChatToolMessage: (callback: (data: { id: string; chatId: string; role: string; content: string }) => void) => {
+    const subscription = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('openai:chat-tool-message', subscription);
+    return () => {
+      ipcRenderer.off('openai:chat-tool-message', subscription);
+    };
+  },
 });
