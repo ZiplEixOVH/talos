@@ -412,6 +412,9 @@
     { name: '/model', desc: 'Show current model / provider, or switch model with /model <provider/model>' },
     { name: '/clear', desc: 'Start a new conversation' },
     { name: '/new', desc: 'Start a new conversation' },
+    { name: '/agent', desc: 'Switch to Agent mode (autonomous execution)' },
+    { name: '/plan', desc: 'Switch to Plan mode (technical design & planning)' },
+    { name: '/ask', desc: 'Switch to Ask mode (questions, Q&A, brainstorming)' },
   ];
 
   let showSuggestions = $state(false);
@@ -620,6 +623,36 @@
       const sysMsg = { id: sysMsgId, role: 'system', content: helpText };
       messages.push(sysMsg);
       await scrollToBottom();
+      return true;
+    }
+
+    // /agent — switch to Agent mode
+    if (cmd === '/agent') {
+      const sysMsgId = `sys-${Math.random().toString(36).substring(2, 9)}`;
+      const sysMsg = { id: sysMsgId, role: 'system', content: 'Switched to **Agent mode** (autonomous execution).' };
+      messages.push(sysMsg);
+      await scrollToBottom();
+      selectMode('agent');
+      return true;
+    }
+
+    // /plan — switch to Plan mode
+    if (cmd === '/plan') {
+      const sysMsgId = `sys-${Math.random().toString(36).substring(2, 9)}`;
+      const sysMsg = { id: sysMsgId, role: 'system', content: 'Switched to **Plan mode** (technical design & planning).' };
+      messages.push(sysMsg);
+      await scrollToBottom();
+      selectMode('plan');
+      return true;
+    }
+
+    // /ask — switch to Ask mode
+    if (cmd === '/ask') {
+      const sysMsgId = `sys-${Math.random().toString(36).substring(2, 9)}`;
+      const sysMsg = { id: sysMsgId, role: 'system', content: 'Switched to **Ask mode** (questions, Q&A, brainstorming).' };
+      messages.push(sysMsg);
+      await scrollToBottom();
+      selectMode('ask');
       return true;
     }
 
