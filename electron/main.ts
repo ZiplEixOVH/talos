@@ -7,6 +7,7 @@ import { existsSync } from 'fs';
 import { initDb, getChats, createChat, deleteChat, renameChat, updateChatMode, getChatMode, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, saveMessages, getSetting, setSetting, getDbPath } from './db';
 import { getOpenAITools, getOpenAIToolsForMode, executeTool, getToolParamValue } from './tools';
 import { getSystemPrompt } from './prompts';
+import { TEMPLATE_VARIABLES, TEMPLATE_SYNTAX_HELP } from './promptVariables';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -164,6 +165,14 @@ ipcMain.handle('prompts:list', async () => {
     console.error('Failed to list prompts:', error);
     return [];
   }
+});
+
+// Expose les variables disponibles pour les templates de prompts
+ipcMain.handle('prompts:template-variables', async () => {
+  return {
+    variables: TEMPLATE_VARIABLES,
+    syntax: TEMPLATE_SYNTAX_HELP
+  };
 });
 
 ipcMain.handle('prompts:read', async (_event, name: string) => {

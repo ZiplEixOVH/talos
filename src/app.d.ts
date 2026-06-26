@@ -46,6 +46,16 @@ declare global {
 			readPrompt: (name: string) => Promise<string>;
 			savePrompt: (name: string, content: string) => Promise<boolean>;
 			resetPrompt: (name: string) => Promise<string>;
+			getTemplateVariables: () => Promise<{
+				variables: Array<{
+					name: string;
+					description: string;
+					type: 'string' | 'boolean' | 'array';
+					children?: Array<{ name: string; description: string; type: string; usage: string }>;
+					usage: string;
+				}>;
+				syntax: Array<{ syntax: string; description: string }>;
+			}>;
 		};
 	}
 }

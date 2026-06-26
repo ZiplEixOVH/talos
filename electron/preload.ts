@@ -71,4 +71,5 @@ contextBridge.exposeInMainWorld("talosAPI", {
   readPrompt: (name: string) => ipcRenderer.invoke('prompts:read', name),
   savePrompt: (name: string, content: string) => ipcRenderer.invoke('prompts:save', name, content),
   resetPrompt: (name: string) => ipcRenderer.invoke('prompts:reset', name),
+  getTemplateVariables: () => ipcRenderer.invoke('prompts:template-variables'),
 });

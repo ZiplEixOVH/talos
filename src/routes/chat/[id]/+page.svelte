@@ -38,6 +38,7 @@
 
   // Pièces jointes
   let attachedFiles = $state<string[]>([]);
+  let attachedFileObjects = $state<File[]>([]);
   let fileInput = $state<HTMLInputElement | null>(null);
 
   // Modification de message
@@ -148,6 +149,7 @@
     thinkingStatus = '';
     messages = [];
     attachedFiles = [];
+    attachedFileObjects = [];
 
     // 1. Charger le titre de la discussion
     let foundTitle = 'Discussion';
@@ -255,13 +257,17 @@
   function handleFileChange(e: Event) {
     const target = e.target as HTMLInputElement;
     if (target.files) {
-      const names = Array.from(target.files).map(file => file.name);
+      const files = Array.from(target.files);
+      attachedFileObjects = [...attachedFileObjects, ...files];
+      const names = files.map(file => file.name);
       attachedFiles = [...attachedFiles, ...names];
+      target.value = '';
     }
   }
 
   function removeFile(index: number) {
     attachedFiles = attachedFiles.filter((_, i) => i !== index);
+    attachedFileObjects = attachedFileObjects.filter((_, i) => i !== index);
   }
 
   // ── Stream IPC subscription (réutilisable après HMR) ──────────────────
@@ -626,12 +632,27 @@
     return false; // Not a slash command, proceed normally
   }
 
+  async function readFileAsText(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file);
+    });
+  }
+
   async function sendMessage() {
     const text = inputMessage.trim();
     if (!text && attachedFiles.length === 0) return;
 
+    // Read attached files first
+    let fileContents = '';
+    const filesToRead = [...attachedFileObjects];
+
+    // Clear inputs immediately
     inputMessage = '';
     attachedFiles = [];
+    attachedFileObjects = [];
 
     // ── Check for slash commands first ──
     if (text.startsWith('/')) {
@@ -649,14 +670,25 @@
       return;
     }
 
+    for (const file of filesToRead) {
+      try {
+        const content = await readFileAsText(file);
+        fileContents += `\n\n--- Fichier joint : ${file.name} ---\n\`\`\`\n${content}\n\`\`\``;
+      } catch (err) {
+        console.error(`Failed to read file ${file.name}:`, err);
+        fileContents += `\n\n[Erreur de lecture du fichier joint : ${file.name}]`;
+      }
+    }
+
+    const textToSend = text + fileContents;
     const userMsgId = `msg-${Math.random().toString(36).substring(2, 9)}`;
-    const userMsg = { id: userMsgId, role: 'user', content: text };
+    const userMsg = { id: userMsgId, role: 'user', content: textToSend };
     
     messages.push(userMsg);
     
     if (window.talosAPI) {
       try {
-        await window.talosAPI.addMessage(userMsgId, chatId, 'user', text);
+        await window.talosAPI.addMessage(userMsgId, chatId, 'user', textToSend);
       } catch (err) {
         console.error(err);
         saveMessageToLocalStorage(chatId, userMsg);
