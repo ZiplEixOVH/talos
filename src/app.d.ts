@@ -56,6 +56,7 @@ declare global {
 				}>;
 				syntax: Array<{ syntax: string; description: string }>;
 			}>;
+			saveMedia: (chatId: string, filename: string, base64Data: string) => Promise<string>;
 		};
 	}
 }

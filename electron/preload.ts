@@ -72,4 +72,5 @@ contextBridge.exposeInMainWorld("talosAPI", {
   savePrompt: (name: string, content: string) => ipcRenderer.invoke('prompts:save', name, content),
   resetPrompt: (name: string) => ipcRenderer.invoke('prompts:reset', name),
   getTemplateVariables: () => ipcRenderer.invoke('prompts:template-variables'),
+  saveMedia: (chatId: string, filename: string, base64Data: string) => ipcRenderer.invoke('chat:save-media', chatId, filename, base64Data),
 });

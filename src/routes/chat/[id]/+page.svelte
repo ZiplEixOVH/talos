@@ -48,6 +48,9 @@
   // Mode actif de discussion
   let currentMode = $state<'agent' | 'plan' | 'ask'>('agent');
 
+  // Drag and drop / Paste state
+  let isDragging = $state(false);
+
   // Nom abrégé du dossier de travail (CWD)
   let folderName = $derived(cwd ? (cwd.split(/[/\\]/).pop() || cwd) : 'Dossier');
   
@@ -840,11 +843,74 @@
       sendMessage();
     }
   }
+  async function readFileAsBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const base64 = result.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function processFiles(files: FileList | File[]) {
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith('image/')) {
+        const base64 = await readFileAsBase64(file);
+        const safeName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+        const filename = `image_${Date.now()}_${safeName}`;
+        if (window.talosAPI && window.talosAPI.saveMedia) {
+          try {
+            const fileUrl = await window.talosAPI.saveMedia(chatId, filename, base64);
+            const imageLink = `\n![Image](${fileUrl})\n`;
+            inputMessage = inputMessage ? inputMessage + imageLink : imageLink;
+          } catch (err) {
+            console.error('Failed to save media:', err);
+          }
+        } else {
+          const mockUrl = `data:${file.type};base64,${base64}`;
+          const imageLink = `\n![Image](${mockUrl})\n`;
+          inputMessage = inputMessage ? inputMessage + imageLink : imageLink;
+        }
+      } else {
+        if (!attachedFiles.includes(file.name)) {
+          attachedFileObjects = [...attachedFileObjects, file];
+          attachedFiles = [...attachedFiles, file.name];
+        }
+      }
+    }
+  }
+
+  function handlePaste(e: ClipboardEvent) {
+    if (e.clipboardData && e.clipboardData.files.length > 0) {
+      e.preventDefault();
+      processFiles(e.clipboardData.files);
+    }
+  }
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
-<div class="flex flex-col h-full w-full bg-transparent overflow-hidden">
+<div 
+  class="flex flex-col h-full w-full bg-transparent overflow-hidden relative"
+  onpaste={handlePaste}
+  ondragover={(e) => { e.preventDefault(); isDragging = true; }}
+  ondragleave={() => isDragging = false}
+  ondrop={(e) => { e.preventDefault(); isDragging = false; if (e.dataTransfer) processFiles(e.dataTransfer.files); }}
+>
+  
+  {#if isDragging}
+    <div class="absolute inset-0 bg-[#020617]/85 border-2 border-dashed border-indigo-500/50 rounded-2xl z-50 flex flex-col items-center justify-center pointer-events-none select-none animate-in fade-in duration-200">
+      <div class="p-6 bg-indigo-900/10 rounded-full border border-indigo-500/20 text-indigo-400 mb-4 animate-bounce">
+        <Sparkles size={48} />
+      </div>
+      <h3 class="text-base font-bold text-slate-200">Relâchez pour joindre les fichiers</h3>
+      <p class="text-xs text-slate-500 mt-1.5">Déposez vos images ou fichiers de code directement ici.</p>
+    </div>
+  {/if}
   
   <!-- Top bar of the discussion: chat title & Mode Selector segmented tabs -->
   <div class="h-12 border-b border-slate-900/60 bg-[#070b15]/65 backdrop-blur-md px-8 flex items-center justify-between shrink-0 select-none z-10">

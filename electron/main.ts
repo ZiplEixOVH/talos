@@ -3,7 +3,7 @@ import { OpenAI } from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fsPromises from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { initDb, getChats, createChat, deleteChat, renameChat, updateChatMode, getChatMode, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, saveMessages, getSetting, setSetting, getDbPath } from './db';
 import { getOpenAITools, getOpenAIToolsForMode, executeTool, getToolParamValue } from './tools';
 import { getSystemPrompt } from './prompts';
@@ -221,6 +221,23 @@ ipcMain.handle('prompts:reset', async (_event, name: string) => {
   }
 });
 
+ipcMain.handle('chat:save-media', async (_event, chatId: string, filename: string, base64Data: string) => {
+  try {
+    const chatsDir = path.join(getDbPath(), 'chats');
+    const mediaDir = path.join(chatsDir, chatId, 'media');
+    await fsPromises.mkdir(mediaDir, { recursive: true });
+    
+    const filePath = path.join(mediaDir, filename);
+    const buffer = Buffer.from(base64Data, 'base64');
+    await fsPromises.writeFile(filePath, buffer);
+    
+    return `file://${filePath}`;
+  } catch (error) {
+    console.error('Failed to save media:', error);
+    throw error;
+  }
+});
+
 // Handlers pour le dossier de travail actuel (CWD)
 ipcMain.handle('cwd:get', () => {
   return process.cwd();
@@ -280,6 +297,58 @@ ipcMain.on('openai:chat-stream-stop', (_, chatId: string) => {
   }
 });
 
+function parseMessageContent(text: string): any {
+  const parts: any[] = [];
+  // Matches either file:///path/to/image or data:image/png;base64,...
+  const regex = /!\[.*?\]\(((file:\/\/\/(.*?))|(data:(image\/[a-zA-Z+]+);base64,([a-zA-Z0-9+/=]+)))\)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    const textBefore = text.substring(lastIndex, match.index);
+    if (textBefore) {
+      parts.push({ type: 'text', text: textBefore });
+    }
+    
+    const isDataUrl = !!match[4]; // if data URL match group is present
+    if (isDataUrl) {
+      const fullDataUrl = match[1];
+      parts.push({
+        type: 'image_url',
+        image_url: {
+          url: fullDataUrl
+        }
+      });
+    } else {
+      const filePath = decodeURIComponent(match[3]);
+      try {
+        if (existsSync(filePath)) {
+          const buffer = readFileSync(filePath);
+          const ext = path.extname(filePath).replace('.', '').toLowerCase();
+          const base64 = buffer.toString('base64');
+          const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
+          parts.push({
+            type: 'image_url',
+            image_url: {
+              url: `data:${mimeType};base64,${base64}`
+            }
+          });
+        }
+      } catch (e) {
+        console.error('Failed to read image for multimodal payload:', e);
+      }
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  const textAfter = text.substring(lastIndex);
+  if (textAfter) {
+    parts.push({ type: 'text', text: textAfter });
+  }
+
+  return parts.length > 1 ? parts : text;
+}
+
 // Handler pour le streaming d'appels d'API OpenAI / Ollama avec exécution automatique d'outils
 ipcMain.on('openai:chat-stream-start', async (event, providerId: string, model: string, chatMessages: any[], chatId: string, requestId: string) => {
   let currentRequestId = requestId;
@@ -330,7 +399,12 @@ ipcMain.on('openai:chat-stream-start', async (event, providerId: string, model: 
     const apiMessages = [
       { role: 'system', content: systemPrompt },
       ...chatMessages.map((m: any) => {
-        const msg: any = { role: m.role, content: m.content || '' };
+        const msg: any = { role: m.role };
+        if (m.role === 'user') {
+          msg.content = parseMessageContent(m.content || '');
+        } else {
+          msg.content = m.content || '';
+        }
         if (m.tool_calls) {
           msg.tool_calls = m.tool_calls;
         }
