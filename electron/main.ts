@@ -251,6 +251,7 @@ ipcMain.on('openai:chat-stream-start', async (event, providerId: string, model: 
     // Récupérer le mode du chat et compiler le prompt système associé
     const mode = await getChatMode(chatId);
     const systemPrompt = await getSystemPrompt(mode);
+    console.log(`[Prompt Manager] Final system prompt for chat ${chatId} (mode: ${mode}):\n========================================\n${systemPrompt}\n========================================`);
     const toolsForMode = getOpenAIToolsForMode(mode);
 
     // Assainir l'historique et injecter le prompt système

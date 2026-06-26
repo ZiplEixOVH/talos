@@ -799,3 +799,12 @@ export function getOpenAITools() {
     }
   ];
 }
+
+export function getOpenAIToolsForMode(mode: string): any[] {
+  const tools = getOpenAITools();
+  if (mode === 'agent') {
+    return tools;
+  }
+  const excludeNames = ['Write', 'Mkdir', 'Bash', 'ReplaceInFile'];
+  return tools.filter(t => !excludeNames.includes(t.function.name));
+}
