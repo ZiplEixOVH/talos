@@ -4,9 +4,7 @@ import path from 'path';
 import { getOpenAIToolsForMode } from './tools';
 import { getDbPath } from './db';
 
-const PROMPTS_DIR = existsSync(path.join(process.cwd(), 'prompts'))
-  ? path.join(process.cwd(), 'prompts')
-  : path.join(__dirname, '../prompts');
+const PROMPTS_DIR = path.join(getDbPath(), 'prompts');
 
 // Simple RegExp-based template rendering engine
 export function renderTemplate(template: string, data: Record<string, any>): string {

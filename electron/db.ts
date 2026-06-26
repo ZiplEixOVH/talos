@@ -44,6 +44,32 @@ export async function initDb(): Promise<void> {
   await fs.mkdir(TALOS_DIR, { recursive: true });
   await fs.mkdir(CHATS_DIR, { recursive: true });
 
+  // Copy default prompts to ~/.talos/prompts if they do not exist
+  const srcPromptsDir = existsSync(path.join(process.cwd(), 'prompts'))
+    ? path.join(process.cwd(), 'prompts')
+    : path.join(__dirname, '../prompts');
+
+  const destPromptsDir = path.join(TALOS_DIR, 'prompts');
+  await fs.mkdir(destPromptsDir, { recursive: true });
+
+  try {
+    if (existsSync(srcPromptsDir)) {
+      const files = await fs.readdir(srcPromptsDir);
+      for (const file of files) {
+        const srcFile = path.join(srcPromptsDir, file);
+        const destFile = path.join(destPromptsDir, file);
+        if (!existsSync(destFile)) {
+          const stats = await fs.stat(srcFile);
+          if (stats.isFile()) {
+            await fs.copyFile(srcFile, destFile);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to copy prompts to .talos/prompts:', err);
+  }
+
   // 2. Ensure files exist with proper initial values
   if (!existsSync(SETTINGS_FILE)) {
     await writeJsonFile(SETTINGS_FILE, {});
