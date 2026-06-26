@@ -204,6 +204,17 @@ export async function addMessage(
   await writeJsonFile(messagesPath, messages);
 }
 
+export async function saveMessages(chatId: string, messages: any[]): Promise<void> {
+  const chatFolder = path.join(CHATS_DIR, chatId);
+  const messagesPath = path.join(chatFolder, 'messages.json');
+  
+  if (!existsSync(chatFolder)) {
+    throw new Error(`Chat ${chatId} not found to save messages`);
+  }
+  
+  await writeJsonFile(messagesPath, messages);
+}
+
 // ==========================================
 // APPLICATION SETTINGS DATABASE METHODS
 // ==========================================

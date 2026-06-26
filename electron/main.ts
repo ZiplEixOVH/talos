@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem } from 'electron';
 import { OpenAI } from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, getChats, createChat, deleteChat, renameChat, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, getSetting, setSetting, getDbPath } from './db';
+import { initDb, getChats, createChat, deleteChat, renameChat, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, saveMessages, getSetting, setSetting, getDbPath } from './db';
 import { getOpenAITools, executeTool, getToolParamValue } from './tools';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -124,6 +124,10 @@ ipcMain.handle('messages:get', async (_, chatId: string) => {
 
 ipcMain.handle('messages:add', async (_, id: string, chatId: string, role: string, content: string, toolCalls?: any[], toolCallId?: string) => {
   return await addMessage(id, chatId, role, content, toolCalls, toolCallId);
+});
+
+ipcMain.handle('messages:save', async (_, chatId: string, messages: any[]) => {
+  return await saveMessages(chatId, messages);
 });
 
 // Handlers pour les réglages de l'application (modèle actif, etc.)

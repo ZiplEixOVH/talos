@@ -3,7 +3,7 @@
   import { page } from '$app/stores';
   import { 
     Send, Bot, User, Cpu, Sparkles, FolderOpen, 
-    Paperclip, X, RefreshCw, AlertCircle, Square 
+    Paperclip, X, RefreshCw, AlertCircle, Square, Pencil 
   } from 'lucide-svelte';
   import { marked } from 'marked';
   import ModelSelector from '$lib/components/ModelSelector.svelte';
@@ -38,6 +38,10 @@
   // Pièces jointes
   let attachedFiles = $state<string[]>([]);
   let fileInput = $state<HTMLInputElement | null>(null);
+
+  // Modification de message
+  let editingMessageId = $state<string | null>(null);
+  let editingMessageText = $state<string>('');
 
   // Nom abrégé du dossier de travail (CWD)
   let folderName = $derived(cwd ? (cwd.split(/[/\\]/).pop() || cwd) : 'Dossier');
@@ -312,11 +316,67 @@
     streamCleanups.push(unsubChunk, unsubEnd, unsubError, unsubToolMessage);
   }
 
+  async function startStreamGeneration() {
+    if (!activeModel) {
+      messages.push({
+        id: `err-${Date.now()}`,
+        role: 'assistant',
+        content: 'Veuillez sélectionner un modèle dans les outils au bas de l\'écran avant d\'envoyer un message.'
+      });
+      await scrollToBottom();
+      return;
+    }
+
+    thinkingStatus = 'thinking';
+    try {
+      if (window.talosAPI) {
+        const plainMessages = messages.map(m => {
+          const apiMsg: any = { role: m.role, content: m.content || '' };
+          if (m.tool_calls) {
+            apiMsg.tool_calls = m.tool_calls;
+          }
+          if (m.tool_call_id) {
+            apiMsg.tool_call_id = m.tool_call_id;
+          }
+          return apiMsg;
+        });
+        const cleanMessages = $state.snapshot(plainMessages);
+        
+        const aiMsgId = `msg-${Math.random().toString(36).substring(2, 9)}`;
+        const assistantMsg = { id: aiMsgId, role: 'assistant', content: '' };
+        messages.push(assistantMsg);
+        await scrollToBottom();
+
+        sessionStorage.setItem('talos_active_stream', JSON.stringify({ chatId }));
+        subscribeToStream(chatId);
+
+        window.talosAPI.startChatStream(activeProviderId, activeModel, cleanMessages, chatId, aiMsgId);
+      } else {
+        await new Promise(r => setTimeout(r, 1200));
+        const aiMsgId = `msg-${Math.random().toString(36).substring(2, 9)}`;
+        const content = `[Simulation Fallback Browser]\nModèle sélectionné : ${activeModel}\nFournisseur : ${activeProviderId}\nDossier de travail : ${cwd}\n\nVotre message a été reçu ! Pour exécuter de vrais appels d'API, veuillez lancer l'application avec Electron et configurer un fournisseur de clés.`;
+        const assistantMsg = { id: aiMsgId, role: 'assistant', content };
+        
+        messages.push(assistantMsg);
+        saveMessageToLocalStorage(chatId, assistantMsg);
+        thinkingStatus = '';
+        await scrollToBottom();
+      }
+    } catch (err: any) {
+      console.error(err);
+      sessionStorage.removeItem('talos_active_stream');
+      thinkingStatus = '';
+      const aiMsgId = `msg-${Math.random().toString(36).substring(2, 9)}`;
+      const errMsg = { id: aiMsgId, role: 'assistant', content: `Désolé, une erreur s'est produite lors de l'appel d'API : ${err.message || err}` };
+      messages.push(errMsg);
+      await scrollToBottom();
+    }
+  }
+
   async function sendMessage() {
     const text = inputMessage.trim();
     if (!text && attachedFiles.length === 0) return;
 
-    // S'assurer qu'un modèle est sélectionné
     if (!activeModel) {
       messages.push({
         id: `err-${Date.now()}`,
@@ -337,10 +397,8 @@
     const userMsgId = `msg-${Math.random().toString(36).substring(2, 9)}`;
     const userMsg = { id: userMsgId, role: 'user', content: textWithFiles };
     
-    // Ajout à l'interface
     messages.push(userMsg);
     
-    // Sauvegarde en base
     if (window.talosAPI) {
       try {
         await window.talosAPI.addMessage(userMsgId, chatId, 'user', textWithFiles);
@@ -353,57 +411,47 @@
     }
 
     await scrollToBottom();
+    await startStreamGeneration();
+  }
 
-    // Lancer la réflexion
-    thinkingStatus = 'thinking';
-    try {
-      if (window.talosAPI) {
-        // Envoi en mode streaming réel via Electron
-        const plainMessages = messages.map(m => {
-          const apiMsg: any = { role: m.role, content: m.content || '' };
-          if (m.tool_calls) {
-            apiMsg.tool_calls = m.tool_calls;
-          }
-          if (m.tool_call_id) {
-            apiMsg.tool_call_id = m.tool_call_id;
-          }
-          return apiMsg;
-        });
-        const cleanMessages = $state.snapshot(plainMessages);
-        
-        const aiMsgId = `msg-${Math.random().toString(36).substring(2, 9)}`;
-        const assistantMsg = { id: aiMsgId, role: 'assistant', content: '' };
-        messages.push(assistantMsg);
-        await scrollToBottom();
+  function startEditing(msg: any) {
+    editingMessageId = msg.id;
+    editingMessageText = msg.content;
+  }
 
-        // Marquer le stream comme actif (survit aux HMR)
-        sessionStorage.setItem('talos_active_stream', JSON.stringify({ chatId }));
+  function cancelEditing() {
+    editingMessageId = null;
+    editingMessageText = '';
+  }
 
-        // S'abonner aux événements IPC du stream
-        subscribeToStream(chatId);
+  function saveMessagesToLocalStorage(id: string, msgs: any[]) {
+    localStorage.setItem(`talos_messages_${id}`, JSON.stringify(msgs));
+  }
 
-        window.talosAPI.startChatStream(activeProviderId, activeModel, cleanMessages, chatId, aiMsgId);
-      } else {
-        // Simulation en mode fallback localStorage
-        await new Promise(r => setTimeout(r, 1200));
-        const aiMsgId = `msg-${Math.random().toString(36).substring(2, 9)}`;
-        const content = `[Simulation Fallback Browser]\nModèle sélectionné : ${activeModel}\nFournisseur : ${activeProviderId}\nDossier de travail : ${cwd}\n\nVotre message a été reçu ! Pour exécuter de vrais appels d'API, veuillez lancer l'application avec Electron et configurer un fournisseur de clés.`;
-        const assistantMsg = { id: aiMsgId, role: 'assistant', content };
-        
-        messages.push(assistantMsg);
-        saveMessageToLocalStorage(chatId, assistantMsg);
-        thinkingStatus = '';
-        await scrollToBottom();
+  async function saveEditedMessage(id: string) {
+    const idx = messages.findIndex(m => m.id === id);
+    if (idx === -1) return;
+
+    const updatedMessages = messages.slice(0, idx + 1);
+    updatedMessages[idx].content = editingMessageText;
+
+    editingMessageId = null;
+    editingMessageText = '';
+
+    if (window.talosAPI) {
+      try {
+        await window.talosAPI.saveMessages(chatId, $state.snapshot(updatedMessages));
+      } catch (err) {
+        console.error('Failed to save edited messages:', err);
+        saveMessagesToLocalStorage(chatId, updatedMessages);
       }
-    } catch (err: any) {
-      console.error(err);
-      sessionStorage.removeItem('talos_active_stream');
-      thinkingStatus = '';
-      const aiMsgId = `msg-${Math.random().toString(36).substring(2, 9)}`;
-      const errMsg = { id: aiMsgId, role: 'assistant', content: `Désolé, une erreur s'est produite lors de l'appel d'API : ${err.message || err}` };
-      messages.push(errMsg);
-      await scrollToBottom();
+    } else {
+      saveMessagesToLocalStorage(chatId, updatedMessages);
     }
+
+    messages = updatedMessages;
+    await scrollToBottom();
+    await startStreamGeneration();
   }
 
   async function stopChatStream() {
@@ -461,10 +509,46 @@
       {#each visibleMessages as msg (msg.id)}
         <div class="flex w-full {msg.role === 'user' ? 'justify-end' : 'justify-start'}">
           {#if msg.role === 'user'}
-            <!-- User Message Bubble (aligned right) -->
-            <div class="max-w-[70%] bg-gradient-to-br from-indigo-600 to-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap shadow-md">
-              {msg.content}
-            </div>
+            {#if editingMessageId === msg.id}
+              <div class="flex flex-col gap-2 w-[70%] bg-slate-900/40 border border-indigo-900/60 rounded-2xl p-4 shadow-md no-drag">
+                <textarea
+                  bind:value={editingMessageText}
+                  rows="3"
+                  class="w-full bg-slate-950/60 border border-slate-800 focus:border-indigo-500/50 rounded-xl px-3 py-2 text-sm text-slate-200 resize-none outline-none min-h-[80px]"
+                ></textarea>
+                <div class="flex justify-end gap-2 text-xs">
+                  <button 
+                    onclick={cancelEditing}
+                    class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-350 rounded-md cursor-pointer transition-colors"
+                  >
+                    Annuler
+                  </button>
+                  <button 
+                    onclick={() => saveEditedMessage(msg.id)}
+                    class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md cursor-pointer font-bold transition-colors"
+                  >
+                    Valider
+                  </button>
+                </div>
+              </div>
+            {:else}
+              <!-- User Message Bubble (aligned right) -->
+              <div class="group relative flex items-start gap-2 max-w-[70%]">
+                <!-- Edit button (visible on hover) -->
+                <button
+                  onclick={() => startEditing(msg)}
+                  disabled={isThinking}
+                  class="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-slate-200 bg-slate-900/60 hover:bg-slate-900 border border-slate-800/80 rounded-lg cursor-pointer transition-all shrink-0 self-center disabled:opacity-0 disabled:cursor-not-allowed"
+                  title="Modifier le message"
+                >
+                  <Pencil size={11} />
+                </button>
+                
+                <div class="bg-gradient-to-br from-indigo-600 to-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap shadow-md">
+                  {msg.content}
+                </div>
+              </div>
+            {/if}
           {:else}
             <!-- Assistant Message (Markdown HTML, left-aligned, no bubble) -->
             <div class="max-w-[85%] text-slate-200 text-sm leading-relaxed py-2 markdown-body w-full space-y-3">
