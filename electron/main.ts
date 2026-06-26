@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem } from 'electron';
 import { OpenAI } from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -24,7 +24,46 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      spellcheck: true,
     },
+  });
+
+  const session = mainWindow.webContents.session;
+  session.setSpellCheckerLanguages(['en-US', 'fr-FR']);
+
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    const menu = new Menu();
+
+    if (params.misspelledWord) {
+      for (const suggestion of params.dictionarySuggestions) {
+        menu.append(
+          new MenuItem({
+            label: suggestion,
+            click: () => mainWindow?.webContents.replaceMisspelling(suggestion)
+          })
+        );
+      }
+
+      menu.append(new MenuItem({ type: 'separator' }));
+      menu.append(
+        new MenuItem({
+          label: 'Add to Dictionary',
+          click: () => mainWindow?.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
+        })
+      );
+
+      menu.append(new MenuItem({ type: 'separator' }));
+    }
+
+    if (params.isEditable) {
+      menu.append(new MenuItem({ label: 'Couper', role: 'cut' }));
+      menu.append(new MenuItem({ label: 'Copier', role: 'copy' }));
+      menu.append(new MenuItem({ label: 'Coller', role: 'paste' }));
+    }
+
+    if (menu.items.length > 0) {
+      menu.popup({ window: mainWindow });
+    }
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
