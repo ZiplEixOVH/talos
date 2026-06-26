@@ -45,6 +45,7 @@ declare global {
 			getPrompts: () => Promise<string[]>;
 			readPrompt: (name: string) => Promise<string>;
 			savePrompt: (name: string, content: string) => Promise<boolean>;
+			resetPrompt: (name: string) => Promise<string>;
 		};
 	}
 }

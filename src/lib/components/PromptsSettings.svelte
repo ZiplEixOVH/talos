@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Sparkles, Save, FileText, CheckCircle2, AlertCircle } from 'lucide-svelte';
+  import { Sparkles, Save, FileText, CheckCircle2, AlertCircle, RotateCcw } from 'lucide-svelte';
 
   let prompts = $state<string[]>([]);
   let selectedPrompt = $state<string | null>(null);
@@ -64,6 +64,31 @@
     isSaving = false;
   }
 
+  async function resetPrompt() {
+    if (!selectedPrompt) return;
+    if (!confirm(`Êtes-vous sûr de vouloir réinitialiser le prompt '${selectedPrompt}' à sa version par défaut ? Vos modifications locales seront écrasées.`)) {
+      return;
+    }
+    isSaving = true;
+    showNotification(null);
+
+    if (window.talosAPI && window.talosAPI.resetPrompt) {
+      try {
+        const defaultContent = await window.talosAPI.resetPrompt(selectedPrompt);
+        promptContent = defaultContent;
+        showNotification({ type: 'success', message: `Prompt '${selectedPrompt}' réinitialisé avec succès.` });
+      } catch (err: any) {
+        showNotification({ type: 'error', message: `Erreur lors de la réinitialisation : ${err.message}` });
+      }
+    } else {
+      // Mock reset for browser testing
+      promptContent = `# Mode: ${selectedPrompt.replace('.md', '').toUpperCase()}\n\nContenu par défaut restauré en simulation.`;
+      localStorage.setItem(`talos_mock_prompt_${selectedPrompt}`, promptContent);
+      showNotification({ type: 'success', message: `Prompt '${selectedPrompt}' réinitialisé en simulation.` });
+    }
+    isSaving = false;
+  }
+
   function showNotification(notif: typeof notification) {
     notification = notif;
     if (notif?.type === 'success') {
@@ -115,18 +140,30 @@
           <p class="text-[10px] text-slate-500 mt-0.5">Ces templates régissent le comportement de Talos dans ses différents modes.</p>
         </div>
         
-        <button
-          onclick={savePrompt}
-          disabled={isSaving}
-          class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
-        >
-          {#if isSaving}
-            <div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-          {:else}
-            <Save size={14} />
-          {/if}
-          Enregistrer
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            onclick={resetPrompt}
+            disabled={isSaving}
+            class="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 border border-slate-800/80 hover:bg-slate-800/70 text-slate-450 hover:text-slate-200 disabled:opacity-50 font-bold text-xs rounded-xl transition-all cursor-pointer"
+            title="Restaurer le template par défaut"
+          >
+            <RotateCcw size={13} />
+            Réinitialiser
+          </button>
+
+          <button
+            onclick={savePrompt}
+            disabled={isSaving}
+            class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
+          >
+            {#if isSaving}
+              <div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            {:else}
+              <Save size={14} />
+            {/if}
+            Enregistrer
+          </button>
+        </div>
       </div>
 
       <!-- Editor textarea -->

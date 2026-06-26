@@ -190,6 +190,28 @@ ipcMain.handle('prompts:save', async (_event, name: string, content: string) => 
   }
 });
 
+ipcMain.handle('prompts:reset', async (_event, name: string) => {
+  try {
+    const srcPromptsDir = existsSync(path.join(process.cwd(), 'prompts'))
+      ? path.join(process.cwd(), 'prompts')
+      : path.join(__dirname, '../prompts');
+    
+    const srcFile = path.join(srcPromptsDir, name);
+    const destFile = path.join(getDbPath(), 'prompts', name);
+    
+    if (!existsSync(srcFile)) {
+      throw new Error(`Default template for ${name} not found`);
+    }
+    
+    const content = await fsPromises.readFile(srcFile, 'utf-8');
+    await fsPromises.writeFile(destFile, content, 'utf-8');
+    return content;
+  } catch (error) {
+    console.error(`Failed to reset prompt ${name}:`, error);
+    throw error;
+  }
+});
+
 // Handlers pour le dossier de travail actuel (CWD)
 ipcMain.handle('cwd:get', () => {
   return process.cwd();
