@@ -3,7 +3,7 @@
   import { page } from '$app/stores';
   import { 
     Send, Bot, User, Cpu, Sparkles, FolderOpen, 
-    Paperclip, X, RefreshCw, AlertCircle 
+    Paperclip, X, RefreshCw, AlertCircle, Square 
   } from 'lucide-svelte';
   import { marked } from 'marked';
   import ModelSelector from '$lib/components/ModelSelector.svelte';
@@ -406,6 +406,30 @@
     }
   }
 
+  async function stopChatStream() {
+    if (window.talosAPI) {
+      try {
+        window.talosAPI.stopChatStream(chatId);
+      } catch (err) {
+        console.error('Failed to stop stream:', err);
+      }
+    }
+    sessionStorage.removeItem('talos_active_stream');
+    clearStreamSubscriptions();
+    thinkingStatus = '';
+    await loadConversationData(chatId);
+  }
+
+  function handleWindowKeydown(e: KeyboardEvent) {
+    if (isThinking && e.ctrlKey && e.key.toLowerCase() === 'c') {
+      const selection = window.getSelection()?.toString();
+      if (!selection) {
+        e.preventDefault();
+        stopChatStream();
+      }
+    }
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -413,6 +437,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={handleWindowKeydown} />
 
 <div class="flex flex-col h-full w-full bg-transparent overflow-hidden">
   
@@ -543,15 +569,26 @@
           class="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-500 resize-none outline-none max-h-[240px] py-1.5 scrollbar-thin scrollbar-thumb-slate-900 no-drag"
         ></textarea>
         
-        <button
-          type="button"
-          onclick={sendMessage}
-          disabled={(!inputMessage.trim() && attachedFiles.length === 0) || isThinking}
-          class="p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed no-drag shrink-0 flex items-center justify-center shadow-md hover:scale-105"
-          title="Envoyer le message"
-        >
-          <Send size={14} />
-        </button>
+        {#if isThinking}
+          <button
+            type="button"
+            onclick={stopChatStream}
+            class="p-2.5 bg-red-600 hover:bg-red-500 text-white rounded-full transition-all cursor-pointer no-drag shrink-0 flex items-center justify-center shadow-md hover:scale-105"
+            title="Interrompre la génération (Ctrl+C)"
+          >
+            <Square size={14} fill="white" />
+          </button>
+        {:else}
+          <button
+            type="button"
+            onclick={sendMessage}
+            disabled={!inputMessage.trim() && attachedFiles.length === 0}
+            class="p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed no-drag shrink-0 flex items-center justify-center shadow-md hover:scale-105"
+            title="Envoyer le message"
+          >
+            <Send size={14} />
+          </button>
+        {/if}
       </div>
       
       <!-- Toolbar (Bottom of the zone): minimalist text line: path | model | join -->

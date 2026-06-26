@@ -35,6 +35,7 @@ declare global {
 			
 			chat: (providerId: string, model: string, chatMessages: any[]) => Promise<{ role: string; content: string }>;
 			startChatStream: (providerId: string, model: string, chatMessages: any[], chatId: string, requestId: string) => void;
+			stopChatStream: (chatId: string) => void;
 			onChatStreamChunk: (callback: (data: { chatId: string; requestId: string; text: string }) => void) => () => void;
 			onChatStreamEnd: (callback: (data: { chatId: string; requestId: string }) => void) => () => void;
 			onChatStreamError: (callback: (data: { chatId: string; requestId: string; error: string }) => void) => () => void;

@@ -189,9 +189,37 @@ ipcMain.handle('openai:chat', async (_, providerId: string, model: string, chatM
   return response.choices[0].message;
 });
 
+const activeStreams = new Map<string, { abort: () => void }>();
+
+ipcMain.on('openai:chat-stream-stop', (_, chatId: string) => {
+  const active = activeStreams.get(chatId);
+  if (active) {
+    active.abort();
+    console.log(`[IPC] Aborted stream for chat: ${chatId}`);
+  }
+});
+
 // Handler pour le streaming d'appels d'API OpenAI / Ollama avec exécution automatique d'outils
 ipcMain.on('openai:chat-stream-start', async (event, providerId: string, model: string, chatMessages: any[], chatId: string, requestId: string) => {
   let currentRequestId = requestId;
+  let aborted = false;
+  const abortController = new AbortController();
+
+  // Si un flux existe déjà pour ce chat, l'interrompre
+  const existing = activeStreams.get(chatId);
+  if (existing) {
+    existing.abort();
+  }
+
+  activeStreams.set(chatId, {
+    abort: () => {
+      aborted = true;
+      abortController.abort();
+    }
+  });
+
+  let fullText = '';
+
   try {
     const providersList = await getProviders();
     const provider = providersList.find(p => p.id === providerId);
@@ -199,7 +227,6 @@ ipcMain.on('openai:chat-stream-start', async (event, providerId: string, model: 
       throw new Error(`Provider introuvable : ${providerId}`);
     }
     console.log(`[IPC] openai:chat-stream-start called:`, { providerId, model, resolvedBaseUrl: provider.base_url });
-    
     
     // S'assurer que le chemin d'Ollama finit par /v1 pour le client officiel
     let baseUrl = provider.base_url;
@@ -237,6 +264,8 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
     let continueAgentLoop = true;
 
     while (continueAgentLoop) {
+      if (aborted) break;
+
       const streamParams: any = {
         model: model,
         messages: apiMessages,
@@ -248,8 +277,11 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
         stream = await client.chat.completions.create({
           ...streamParams,
           stream: true,
-        });
+        }, { signal: abortController.signal });
       } catch (err: any) {
+        if (aborted || err.name === 'AbortError') {
+          throw err;
+        }
         // Si le modèle ou fournisseur ne prend pas en charge les tools, on retombe en standard
         if (err.message && (err.message.includes('tools') || err.message.includes('tool_choice') || err.message.includes('not supported'))) {
           console.warn('Tools not supported by this model, falling back to standard completion.');
@@ -257,16 +289,17 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
           stream = await client.chat.completions.create({
             ...streamParams,
             stream: true,
-          });
+          }, { signal: abortController.signal });
         } else {
           throw err;
         }
       }
 
-      let fullText = '';
+      fullText = '';
       const toolCallsAccumulator: any[] = [];
 
       for await (const chunk of stream) {
+        if (aborted) break;
         const choice = chunk.choices[0];
         if (!choice) continue;
 
@@ -301,6 +334,8 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
         }
       }
 
+      if (aborted) break;
+
       // Filtrer pour éliminer les structures d'appels vides
       const actualToolCalls = toolCallsAccumulator.filter(tc => tc && tc.function.name);
 
@@ -326,6 +361,8 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
 
         // 2. Exécuter chaque outil et envoyer son résultat à l'IHM et au modèle
         for (const tc of actualToolCalls) {
+          if (aborted) break;
+
           let args: any = {};
           try {
             args = JSON.parse(tc.function.arguments);
@@ -335,6 +372,8 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
 
           // Exécuter l'outil
           const result = await executeTool(tc.function.name, args);
+
+          if (aborted) break;
 
           // Ajouter le résultat dans l'historique OpenAI natif pour le prochain tour
           apiMessages.push({
@@ -354,6 +393,8 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
             tool_call_id: tc.id
           });
         }
+
+        if (aborted) break;
 
         // On génère un nouvel identifiant pour la réponse finale ou la prochaine vague d'outils
         currentRequestId = `msg-${Math.random().toString(36).substring(2, 9)}`;
@@ -376,12 +417,28 @@ Utilise ces outils de manière ciblée, intelligente et sécurisée pour répond
       }
     }
   } catch (err: any) {
-    console.error('Error in openai:chat-stream-start:', err);
-    event.sender.send('openai:chat-stream-error', { 
-      chatId, 
-      requestId: currentRequestId, 
-      error: err instanceof Error ? err.message : String(err) 
-    });
+    if (aborted || err.name === 'AbortError') {
+      console.log(`[Stream] Stream for chat ${chatId} successfully aborted.`);
+      if (fullText) {
+        try {
+          await addMessage(currentRequestId, chatId, 'assistant', fullText);
+        } catch (dbErr) {
+          console.error('Error saving partial text on abort:', dbErr);
+        }
+      }
+      event.sender.send('openai:chat-stream-end', { chatId, requestId: currentRequestId });
+    } else {
+      console.error('Error in openai:chat-stream-start:', err);
+      event.sender.send('openai:chat-stream-error', { 
+        chatId, 
+        requestId: currentRequestId, 
+        error: err instanceof Error ? err.message : String(err) 
+      });
+    }
+  } finally {
+    if (activeStreams.get(chatId)?.abort === abortController.abort) {
+      activeStreams.delete(chatId);
+    }
   }
 });
 

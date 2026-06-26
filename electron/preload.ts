@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld("talosAPI", {
   
   startChatStream: (providerId: string, model: string, chatMessages: any[], chatId: string, requestId: string) => 
     ipcRenderer.send('openai:chat-stream-start', providerId, model, chatMessages, chatId, requestId),
+  
+  stopChatStream: (chatId: string) => 
+    ipcRenderer.send('openai:chat-stream-stop', chatId),
     
   onChatStreamChunk: (callback: (data: { chatId: string; requestId: string; text: string }) => void) => {
     const subscription = (_event: any, data: any) => callback(data);
