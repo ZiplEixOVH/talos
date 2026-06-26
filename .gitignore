@@ -27,3 +27,9 @@ dist-electron
 dist
 build
 
+# Local data / Dev database
+.talos
+*.db
+*.db.backup
+*.db.bak
+*.db.tmp

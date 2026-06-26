@@ -13,6 +13,7 @@
 
   let chatTitle = $state('Discussion');
   let messages = $state<Array<{ id: string; role: string; content: string }>>([]);
+  let visibleMessages = $derived(messages.filter(m => m.role !== 'tool' && m.content !== ''));
 
   let streamCleanups: (() => void)[] = [];
   function clearStreamSubscriptions() {
@@ -338,10 +339,20 @@
             const idx = messages.findIndex(m => m.id === data.id);
             console.log('[DEBUG] findIndex for tool msg', data.id, 'result:', idx);
             if (idx === -1) {
-              messages = [...messages, data]; // Force Svelte reactivity update on push
+              // Nouveau message — on l'ajoute (même vide, ça sert de placeholder)
+              messages = [...messages, data];
             } else {
-              messages[idx] = data;
-              messages = [...messages]; // Force Svelte reactivity update on modification
+              // ⚠️ RACE CONDITION : le canal onChatStreamChunk peut avoir déjà
+              // rempli ce message. Si data.content est vide, on préserve le
+              // contenu existant pour ne pas écraser ce qui a déjà été streamé.
+              if (data.content !== '') {
+                messages[idx] = data;
+                messages = [...messages]; // Force Svelte reactivity update
+              } else if (messages[idx].content === '') {
+                // Seulement si le message est vraiment encore vide, on met à jour
+                messages[idx] = data;
+                messages = [...messages];
+              }
             }
             if (data.role === 'assistant' && data.content.startsWith('`')) {
               thinkingStatus = 'executing';
@@ -390,7 +401,7 @@
     bind:this={chatContainer}
     class="flex-1 overflow-y-auto px-8 py-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-900 scrollbar-track-transparent"
   >
-    {#if messages.filter(m => m.role !== 'tool' && m.content !== '').length === 0}
+    {#if visibleMessages.length === 0}
       <div class="h-full flex flex-col items-center justify-center text-center py-20 text-slate-500 space-y-3">
         <div class="p-4 bg-slate-900/40 rounded-full border border-slate-900/60 text-slate-400">
           <Sparkles size={32} />
@@ -401,7 +412,7 @@
         </div>
       </div>
     {:else}
-      {#each messages.filter(m => m.role !== 'tool' && m.content !== '') as msg (msg.id)}
+      {#each visibleMessages as msg (msg.id)}
         <div class="flex w-full {msg.role === 'user' ? 'justify-end' : 'justify-start'}">
           {#if msg.role === 'user'}
             <!-- User Message Bubble (aligned right) -->

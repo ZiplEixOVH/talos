@@ -14,6 +14,7 @@ declare global {
 			createChat: (id: string, title: string) => Promise<void>;
 			deleteChat: (id: string) => Promise<void>;
 			renameChat: (id: string, title: string) => Promise<void>;
+			getDbPath: () => Promise<string>;
 			
 			getProviders: () => Promise<Array<{ id: string; name: string; base_url: string; api_key: string }>>;
 			saveProvider: (id: string, name: string, baseUrl: string, apiKey: string) => Promise<void>;

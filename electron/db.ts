@@ -1,319 +1,247 @@
-import sqlite3 from 'sqlite3';
 import path from 'path';
 import { app } from 'electron';
+import fs from 'fs/promises';
+import { existsSync } from 'fs';
 
-let db: sqlite3.Database;
+const TALOS_DIR = path.join(app.getPath('home'), '.talos');
+const CHATS_DIR = path.join(TALOS_DIR, 'chats');
+const SETTINGS_FILE = path.join(TALOS_DIR, 'settings.json');
+const PROVIDERS_FILE = path.join(TALOS_DIR, 'providers.json');
+const MODELS_FILE = path.join(TALOS_DIR, 'models.json');
 
-export function initDb(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const dbPath = path.join(app.getPath('userData'), 'talos.db');
-    
-    const sqlite = sqlite3.verbose();
-    
-    db = new sqlite.Database(dbPath, (err) => {
-      if (err) {
-        console.error('Failed to open SQLite database:', err);
-        reject(err);
-      } else {
-        console.log('SQLite database opened at:', dbPath);
-        
-        // Activer la contrainte de clé étrangère et la suppression en cascade
-        db.run("PRAGMA foreign_keys = ON;", (err) => {
-          if (err) console.error('Failed to enable foreign keys:', err);
-        });
-        
-        // Créer les tables de la base de données de manière sérialisée
-        db.serialize(() => {
-          // Table des Chats
-          db.run(
-            `CREATE TABLE IF NOT EXISTS chats (
-              id TEXT PRIMARY KEY,
-              title TEXT NOT NULL,
-              created_at INTEGER NOT NULL
-            )`,
-            (err) => {
-              if (err) console.error('Failed to create table chats:', err);
-            }
-          );
-          
-          // Table des Messages rattachés aux chats
-          db.run(
-            `CREATE TABLE IF NOT EXISTS messages (
-              id TEXT PRIMARY KEY,
-              chat_id TEXT NOT NULL,
-              role TEXT NOT NULL,
-              content TEXT NOT NULL,
-              created_at INTEGER NOT NULL,
-              FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE
-            )`,
-            (err) => {
-              if (err) console.error('Failed to create table messages:', err);
-            }
-          );
-          
-          // Table des Paramètres de l'application (modèle actif, provider actif, etc.)
-          db.run(
-            `CREATE TABLE IF NOT EXISTS app_settings (
-              key TEXT PRIMARY KEY,
-              value TEXT NOT NULL
-            )`,
-            (err) => {
-              if (err) console.error('Failed to create table app_settings:', err);
-            }
-          );
-          
-          // Table des Providers
-          db.run(
-            `CREATE TABLE IF NOT EXISTS providers (
-              id TEXT PRIMARY KEY,
-              name TEXT NOT NULL,
-              base_url TEXT NOT NULL,
-              api_key TEXT
-            )`,
-            (err) => {
-              if (err) console.error('Failed to create table providers:', err);
-            }
-          );
-
-          // Table des Modèles
-          db.run(
-            `CREATE TABLE IF NOT EXISTS models (
-              id TEXT PRIMARY KEY,
-              provider_id TEXT NOT NULL,
-              name TEXT NOT NULL,
-              FOREIGN KEY(provider_id) REFERENCES providers(id) ON DELETE CASCADE
-            )`,
-            (err) => {
-              if (err) {
-                console.error('Failed to create table models:', err);
-              } else {
-                // Initialiser les données par défaut si vide
-                initializeDefaultData();
-              }
-            }
-          );
-        });
-        
-        resolve();
-      }
-    });
-  });
+// Helper to safely read a JSON file with a fallback default value
+async function readJsonFile<T>(filePath: string, defaultValue: T): Promise<T> {
+  try {
+    if (!existsSync(filePath)) {
+      return defaultValue;
+    }
+    const content = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(content) as T;
+  } catch (error) {
+    console.error(`Error reading file ${filePath}:`, error);
+    return defaultValue;
+  }
 }
 
-function initializeDefaultData() {
-  db.serialize(() => {
-    // Initialisation d'Ollama par défaut si vide
-    db.get(`SELECT COUNT(*) as count FROM providers`, (err, row: any) => {
-      if (!err && row && row.count === 0) {
-        console.log('Populating default Ollama provider (with /v1 endpoint)');
-        
-        // Ajouter le provider Ollama
-        db.run(
-          `INSERT INTO providers (id, name, base_url, api_key) VALUES (?, ?, ?, ?)`,
-          ['ollama', 'Ollama', 'http://localhost:11434/v1', '']
-        );
+// Helper to safely write a JSON file atomically using a temp file
+async function writeJsonFile<T>(filePath: string, data: T): Promise<void> {
+  try {
+    const tempPath = `${filePath}.tmp`;
+    await fs.writeFile(tempPath, JSON.stringify(data, null, 2), 'utf-8');
+    await fs.rename(tempPath, filePath);
+  } catch (error) {
+    console.error(`Error writing file ${filePath}:`, error);
+    throw error;
+  }
+}
+
+export function getDbPath(): string {
+  return TALOS_DIR;
+}
+
+export async function initDb(): Promise<void> {
+  // 1. Ensure directory structures exist
+  await fs.mkdir(TALOS_DIR, { recursive: true });
+  await fs.mkdir(CHATS_DIR, { recursive: true });
+
+  // 2. Ensure files exist with proper initial values
+  if (!existsSync(SETTINGS_FILE)) {
+    await writeJsonFile(SETTINGS_FILE, {});
+  }
+
+  if (!existsSync(PROVIDERS_FILE)) {
+    await writeJsonFile(PROVIDERS_FILE, [
+      {
+        id: 'ollama',
+        name: 'Ollama',
+        base_url: 'http://localhost:11434/v1',
+        api_key: ''
       }
-    });
-  });
+    ]);
+  } else {
+    // If providers list is empty, populate default Ollama
+    const providers = await readJsonFile<any[]>(PROVIDERS_FILE, []);
+    if (providers.length === 0) {
+      await writeJsonFile(PROVIDERS_FILE, [
+        {
+          id: 'ollama',
+          name: 'Ollama',
+          base_url: 'http://localhost:11434/v1',
+          api_key: ''
+        }
+      ]);
+    }
+  }
+
+  if (!existsSync(MODELS_FILE)) {
+    await writeJsonFile(MODELS_FILE, []);
+  }
+
+  console.log('JSON database initialized at:', TALOS_DIR);
 }
 
 // ==========================================
 // CHATS DATABASE METHODS
 // ==========================================
 
-export function getChats(): Promise<Array<{ id: string; title: string; created_at: number }>> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.all(
-      `SELECT id, title, created_at FROM chats ORDER BY created_at DESC`,
-      (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows as any);
-      }
+export async function getChats(): Promise<Array<{ id: string; title: string; created_at: number }>> {
+  try {
+    const files = await fs.readdir(CHATS_DIR);
+    const jsonFiles = files.filter(f => f.endsWith('.json'));
+    const chatsData = await Promise.all(
+      jsonFiles.map(async (file) => {
+        const filePath = path.join(CHATS_DIR, file);
+        const data = await readJsonFile<any>(filePath, null);
+        if (data && data.id && data.title) {
+          return {
+            id: data.id,
+            title: data.title,
+            created_at: data.created_at || Date.now()
+          };
+        }
+        return null;
+      })
     );
-  });
+    return (chatsData.filter(Boolean) as any[]).sort((a, b) => b.created_at - a.created_at);
+  } catch (error) {
+    console.error('Error getting chats:', error);
+    return [];
+  }
 }
 
-export function createChat(id: string, title: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    const createdAt = Date.now();
-    db.run(
-      `INSERT INTO chats (id, title, created_at) VALUES (?, ?, ?)`,
-      [id, title, createdAt],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+export async function createChat(id: string, title: string): Promise<void> {
+  const filePath = path.join(CHATS_DIR, `${id}.json`);
+  const chatData = {
+    id,
+    title,
+    created_at: Date.now(),
+    messages: []
+  };
+  await writeJsonFile(filePath, chatData);
 }
 
-export function deleteChat(id: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.run(
-      `DELETE FROM chats WHERE id = ?`,
-      [id],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+export async function deleteChat(id: string): Promise<void> {
+  const filePath = path.join(CHATS_DIR, `${id}.json`);
+  try {
+    if (existsSync(filePath)) {
+      await fs.unlink(filePath);
+    }
+  } catch (error) {
+    console.error(`Error deleting chat ${id}:`, error);
+    throw error;
+  }
 }
 
-export function renameChat(id: string, title: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.run(
-      `UPDATE chats SET title = ? WHERE id = ?`,
-      [title, id],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+export async function renameChat(id: string, title: string): Promise<void> {
+  const filePath = path.join(CHATS_DIR, `${id}.json`);
+  const chatData = await readJsonFile<any>(filePath, null);
+  if (chatData) {
+    chatData.title = title;
+    await writeJsonFile(filePath, chatData);
+  } else {
+    throw new Error(`Chat ${id} not found`);
+  }
 }
 
 // ==========================================
 // MESSAGES DATABASE METHODS
 // ==========================================
 
-export function getMessages(chatId: string): Promise<Array<{ id: string; role: string; content: string }>> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.all(
-      `SELECT id, role, content FROM messages WHERE chat_id = ? ORDER BY created_at ASC`,
-      [chatId],
-      (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows as any);
-      }
-    );
-  });
+export async function getMessages(chatId: string): Promise<Array<{ id: string; role: string; content: string }>> {
+  const filePath = path.join(CHATS_DIR, `${chatId}.json`);
+  const chatData = await readJsonFile<any>(filePath, null);
+  if (chatData && chatData.messages) {
+    return chatData.messages;
+  }
+  return [];
 }
 
-export function addMessage(id: string, chatId: string, role: string, content: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    const createdAt = Date.now();
-    db.run(
-      `INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
-      [id, chatId, role, content, createdAt],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+export async function addMessage(id: string, chatId: string, role: string, content: string): Promise<void> {
+  const filePath = path.join(CHATS_DIR, `${chatId}.json`);
+  const chatData = await readJsonFile<any>(filePath, null);
+  if (chatData) {
+    if (!chatData.messages) {
+      chatData.messages = [];
+    }
+    chatData.messages.push({
+      id,
+      role,
+      content,
+      created_at: Date.now()
+    });
+    await writeJsonFile(filePath, chatData);
+  } else {
+    throw new Error(`Chat ${chatId} not found to add message`);
+  }
 }
 
 // ==========================================
 // APPLICATION SETTINGS DATABASE METHODS
 // ==========================================
 
-export function getSetting(key: string, defaultValue: string): Promise<string> {
-  return new Promise((resolve) => {
-    if (!db) return resolve(defaultValue);
-    db.get(
-      `SELECT value FROM app_settings WHERE key = ?`,
-      [key],
-      (err, row: any) => {
-        if (err || !row) resolve(defaultValue);
-        else resolve(row.value);
-      }
-    );
-  });
+export async function getSetting(key: string, defaultValue: string): Promise<string> {
+  const settings = await readJsonFile<Record<string, string>>(SETTINGS_FILE, {});
+  return settings[key] !== undefined ? settings[key] : defaultValue;
 }
 
-export function setSetting(key: string, value: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.run(
-      `INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)`,
-      [key, value],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+export async function setSetting(key: string, value: string): Promise<void> {
+  const settings = await readJsonFile<Record<string, string>>(SETTINGS_FILE, {});
+  settings[key] = value;
+  await writeJsonFile(SETTINGS_FILE, settings);
 }
 
 // ==========================================
 // PROVIDERS & MODELS DATABASE METHODS
 // ==========================================
 
-export function getProviders(): Promise<Array<{ id: string; name: string; base_url: string; api_key: string }>> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.all(`SELECT id, name, base_url, api_key FROM providers ORDER BY name ASC`, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows as any);
-    });
-  });
+export async function getProviders(): Promise<Array<{ id: string; name: string; base_url: string; api_key: string }>> {
+  return await readJsonFile<Array<{ id: string; name: string; base_url: string; api_key: string }>>(PROVIDERS_FILE, []);
 }
 
-export function saveProvider(id: string, name: string, baseUrl: string, apiKey: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.run(
-      `INSERT OR REPLACE INTO providers (id, name, base_url, api_key) VALUES (?, ?, ?, ?)`,
-      [id, name, baseUrl, apiKey],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+export async function saveProvider(id: string, name: string, baseUrl: string, apiKey: string): Promise<void> {
+  const providers = await getProviders();
+  const index = providers.findIndex(p => p.id === id);
+  const updatedProvider = { id, name, base_url: baseUrl, api_key: apiKey };
+  if (index !== -1) {
+    providers[index] = updatedProvider;
+  } else {
+    providers.push(updatedProvider);
+  }
+  await writeJsonFile(PROVIDERS_FILE, providers);
 }
 
-export function deleteProvider(id: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.run(`DELETE FROM providers WHERE id = ?`, [id], (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
+export async function deleteProvider(id: string): Promise<void> {
+  const providers = await getProviders();
+  const filteredProviders = providers.filter(p => p.id !== id);
+  await writeJsonFile(PROVIDERS_FILE, filteredProviders);
+
+  const models = await readJsonFile<Array<{ id: string; provider_id: string; name: string }>>(MODELS_FILE, []);
+  const filteredModels = models.filter(m => m.provider_id !== id);
+  await writeJsonFile(MODELS_FILE, filteredModels);
 }
 
-export function getModels(providerId: string): Promise<Array<{ id: string; name: string }>> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.all(
-      `SELECT id, name FROM models WHERE provider_id = ? ORDER BY name ASC`,
-      [providerId],
-      (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows as any);
-      }
-    );
-  });
+export async function getModels(providerId: string): Promise<Array<{ id: string; name: string }>> {
+  const models = await readJsonFile<Array<{ id: string; provider_id: string; name: string }>>(MODELS_FILE, []);
+  return models
+    .filter(m => m.provider_id === providerId)
+    .map(m => ({ id: m.id, name: m.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function addModel(id: string, providerId: string, name: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.run(
-      `INSERT INTO models (id, provider_id, name) VALUES (?, ?, ?)`,
-      [id, providerId, name],
-      (err) => {
-        if (err) reject(err);
-        else resolve();
-      }
-    );
-  });
+export async function addModel(id: string, providerId: string, name: string): Promise<void> {
+  const models = await readJsonFile<Array<{ id: string; provider_id: string; name: string }>>(MODELS_FILE, []);
+  const index = models.findIndex(m => m.id === id);
+  const newModel = { id, provider_id: providerId, name };
+  if (index !== -1) {
+    models[index] = newModel;
+  } else {
+    models.push(newModel);
+  }
+  await writeJsonFile(MODELS_FILE, models);
 }
 
-export function deleteModel(id: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Database not initialized'));
-    db.run(`DELETE FROM models WHERE id = ?`, [id], (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
+export async function deleteModel(id: string): Promise<void> {
+  const models = await readJsonFile<Array<{ id: string; provider_id: string; name: string }>>(MODELS_FILE, []);
+  const filteredModels = models.filter(m => m.id !== id);
+  await writeJsonFile(MODELS_FILE, filteredModels);
 }

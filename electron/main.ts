@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { OpenAI } from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initDb, getChats, createChat, deleteChat, renameChat, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, getSetting, setSetting } from './db';
+import { initDb, getChats, createChat, deleteChat, renameChat, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, getSetting, setSetting, getDbPath } from './db';
 import { getOpenAITools, executeTool, getToolParamValue } from './tools';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -94,6 +94,11 @@ ipcMain.handle('settings:get', async (_, key: string, defaultValue: string) => {
 
 ipcMain.handle('settings:set', async (_, key: string, value: string) => {
   return await setSetting(key, value);
+});
+
+// Handler pour récupérer le chemin de la base de données
+ipcMain.handle('db:path', async () => {
+  return getDbPath();
 });
 
 // Handlers pour le dossier de travail actuel (CWD)

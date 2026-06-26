@@ -3,6 +3,7 @@
   import { ShieldCheck, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-svelte';
 
   let dbStatus = $state<'loading' | 'connected' | 'fallback'>('loading');
+  let dbPath = $state<string>('');
 
   onMount(async () => {
     // Vérifier si nous tournons dans Electron et si l'API est disponible
@@ -10,8 +11,11 @@
       try {
         await window.talosAPI.getChats();
         dbStatus = 'connected';
+        if (window.talosAPI.getDbPath) {
+          dbPath = await window.talosAPI.getDbPath();
+        }
       } catch (e) {
-        console.error('SQLite connection error:', e);
+        console.error('JSON DB connection error:', e);
         dbStatus = 'fallback';
       }
     } else {
@@ -26,6 +30,9 @@
         try {
           await window.talosAPI.getChats();
           dbStatus = 'connected';
+          if (window.talosAPI.getDbPath) {
+            dbPath = await window.talosAPI.getDbPath();
+          }
         } catch (e) {
           dbStatus = 'fallback';
         }
@@ -38,8 +45,8 @@
 
 <div class="space-y-6 animate-fade-in">
   <div>
-    <h2 class="text-xl font-bold text-slate-100">Statut de la Base de Données</h2>
-    <p class="text-slate-450 text-xs mt-0.5">Suivi de la persistance locale et de la connexion SQLite3.</p>
+    <h2 class="text-xl font-bold text-slate-100">Statut du Stockage</h2>
+    <p class="text-slate-450 text-xs mt-0.5">Suivi de la persistance locale et des fichiers JSON.</p>
   </div>
 
   <!-- Connection Status Card -->
@@ -54,9 +61,9 @@
           <ShieldCheck size={22} />
         </div>
         <div class="space-y-1">
-          <h3 class="font-bold text-emerald-400 text-sm">SQLite3 Connecté</h3>
-          <p class="text-slate-355 text-xs leading-relaxed">La persistance des conversations et agents est active sur la base de données SQLite3.</p>
-          <p class="text-slate-500 text-[10px] font-mono break-all bg-slate-950/40 p-1.5 rounded border border-slate-900/60 w-fit">Base : appData/talos.db</p>
+          <h3 class="font-bold text-emerald-400 text-sm">Stockage JSON Actif</h3>
+          <p class="text-slate-355 text-xs leading-relaxed">La persistance des conversations, modèles et paramètres est active sous forme de fichiers JSON.</p>
+          <p class="text-slate-500 text-[10px] font-mono break-all bg-slate-950/40 p-1.5 rounded border border-slate-900/60 w-fit">Dossier : {dbPath || '~/.talos'}</p>
         </div>
       {:else if dbStatus === 'fallback'}
         <div class="p-2.5 rounded-lg bg-amber-500/10 text-amber-400">
@@ -64,7 +71,7 @@
         </div>
         <div class="space-y-1">
           <h3 class="font-bold text-amber-400 text-sm">Mode Fallback (LocalStorage)</h3>
-          <p class="text-slate-355 text-xs leading-relaxed font-normal">SQLite3 indisponible (environnement navigateur hors Electron). Les discussions sont sauvegardées localement dans votre navigateur.</p>
+          <p class="text-slate-355 text-xs leading-relaxed font-normal">Stockage local indisponible (environnement navigateur hors Electron). Les discussions sont sauvegardées localement dans votre navigateur.</p>
         </div>
       {:else}
         <div class="p-2.5 rounded-lg bg-slate-800 text-slate-400 animate-pulse">
@@ -91,7 +98,7 @@
     <ul class="text-xs text-slate-400 space-y-1">
       <li class="flex justify-between border-b border-slate-900/40 py-1">
         <span>Moteur actif</span>
-        <span class="text-slate-200 font-semibold">{dbStatus === 'connected' ? 'SQLite 3 (Local DB)' : 'LocalStorage (Web API)'}</span>
+        <span class="text-slate-200 font-semibold">{dbStatus === 'connected' ? 'Dossier .talos (JSON)' : 'LocalStorage (Web API)'}</span>
       </li>
       <li class="flex justify-between py-1">
         <span>Synchronisation</span>
