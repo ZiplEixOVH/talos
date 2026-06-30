@@ -14,6 +14,16 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
 	},
+	"build": {
+		"appId": "com.talos.app",
+		"productName": "Talos",
+		"directories": {
+			"output": "dist"
+		},
+		"win": {
+			"target": ["nsis", "portable"]
+		}
+	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",
 		"@sveltejs/adapter-static": "^3.0.10",

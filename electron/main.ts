@@ -4,10 +4,11 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import fsPromises from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
-import { initDb, getChats, createChat, deleteChat, renameChat, updateChatMode, getChatMode, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, saveMessages, getSetting, setSetting, getDbPath } from './db';
+import { initDb, getChats, createChat, deleteChat, renameChat, updateChatMode, getChatMode, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, saveMessages, getSetting, setSetting, getDbPath, getSchedules, saveSchedule, deleteSchedule, updateScheduleStatus } from './db';
 import { getOpenAITools, getOpenAIToolsForMode, executeTool, getToolParamValue, isCommandSafe, getToolPath, isPathAllowed } from './tools';
 import { getSystemPrompt, getSubAgentPrompt } from './prompts';
 import { TEMPLATE_VARIABLES, TEMPLATE_SYNTAX_HELP } from './promptVariables';
+import { initScheduler, runTaskNow, triggerSchedulerCheck, computeNextRun } from './scheduler';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -994,6 +995,46 @@ ipcMain.on('openai:chat-stream-start', async (event, providerId: string, model: 
   }
 });
 
+// Handlers pour le scheduler de tâches planifiées
+ipcMain.handle('schedules:get', async () => {
+  return await getSchedules();
+});
+
+ipcMain.handle('schedules:save', async (_event, task) => {
+  await saveSchedule(task as any);
+  // Recalculer next_run avec les nouvelles infos
+  const schedules = await getSchedules();
+  const saved = schedules.find(s => s.id === task.id);
+  if (saved) {
+    const newNextRun = computeNextRun(saved as any);
+    if (newNextRun !== saved.next_run) {
+      await updateScheduleStatus(saved.id, { next_run: newNextRun });
+    }
+    mainWindow?.webContents.send('scheduler:chat-created', {
+      chatId: saved.chat_id,
+    });
+  }
+  triggerSchedulerCheck();
+  return true;
+});
+
+ipcMain.handle('schedules:delete', async (_event, id: string) => {
+  await deleteSchedule(id);
+  triggerSchedulerCheck();
+  return true;
+});
+
+ipcMain.handle('schedules:run-now', async (_event, id: string) => {
+  const schedules = await getSchedules();
+  const task = schedules.find(s => s.id === id);
+  if (!task) {
+    throw new Error(`Schedule ${id} not found`);
+  }
+  await runTaskNow(task, mainWindow);
+  triggerSchedulerCheck();
+  return true;
+});
+
 
 app.whenReady().then(async () => {
   registerAppProtocol();
@@ -1012,6 +1053,9 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error('Erreur lors de l\'initialisation de la base de données :', err);
   }
+
+  // Initialiser le scheduler de tâches planifiées
+  initScheduler(mainWindow);
 
   // Create standard menu for copy-paste on macOS and general application shortcuts
   const template: any[] = [

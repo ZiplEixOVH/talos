@@ -100,4 +100,26 @@ contextBridge.exposeInMainWorld("talosAPI", {
       ipcRenderer.off('openai:sub-agent-status', subscription);
     };
   },
+
+  // ── Scheduler APIs ──────────────────────────────────────────────────────
+  getSchedules: () => ipcRenderer.invoke('schedules:get'),
+  saveSchedule: (task: any) => ipcRenderer.invoke('schedules:save', task),
+  deleteSchedule: (id: string) => ipcRenderer.invoke('schedules:delete', id),
+  runScheduleNow: (id: string) => ipcRenderer.invoke('schedules:run-now', id),
+  
+  onSchedulerTaskExecuted: (callback: (data: { taskId: string; chatId: string; last_run: number; last_result: string; next_run: number | null; total_runs: number; error?: boolean }) => void) => {
+    const subscription = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('scheduler:task-executed', subscription);
+    return () => {
+      ipcRenderer.off('scheduler:task-executed', subscription);
+    };
+  },
+
+  onSchedulerChatCreated: (callback: (data: { chatId: string }) => void) => {
+    const subscription = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('scheduler:chat-created', subscription);
+    return () => {
+      ipcRenderer.off('scheduler:chat-created', subscription);
+    };
+  },
 });

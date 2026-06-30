@@ -29,10 +29,22 @@
     window.addEventListener('talos:trigger-new-chat', createNewChat);
     window.addEventListener('talos:chat-renamed', loadChats);
 
+    // Listen for scheduler chat creation events (from IPC)
+    if (window.talosAPI?.onSchedulerChatCreated) {
+      const unsubScheduler = window.talosAPI.onSchedulerChatCreated(() => {
+        loadChats();
+      });
+      // Store cleanup
+      (window as any).__talosSchedulerUnsub = unsubScheduler;
+    }
+
     return () => {
       window.removeEventListener('talos:chat-created', loadChats);
       window.removeEventListener('talos:trigger-new-chat', createNewChat);
       window.removeEventListener('talos:chat-renamed', loadChats);
+      if (typeof (window as any).__talosSchedulerUnsub === 'function') {
+        (window as any).__talosSchedulerUnsub();
+      }
     };
   });
 

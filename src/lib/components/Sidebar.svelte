@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { Home, Bot, Settings, Plus, Trash2, PanelLeftClose, MessageSquare, Edit2 } from 'lucide-svelte';
+  import { Home, Bot, Settings, Plus, Trash2, PanelLeftClose, MessageSquare, Edit2, Clock } from 'lucide-svelte';
 
   interface Chat {
     id: string;
@@ -94,6 +94,13 @@
     >
       <Bot size={16} />
       Agents
+    </a>
+    <a
+      href="/schedules"
+      class="flex items-center gap-3 px-3 py-2 text-sm font-semibold rounded-lg transition-all duration-250 {$page.url.pathname === '/schedules' ? 'bg-indigo-600/15 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40 border border-transparent'}"
+    >
+      <Clock size={16} />
+      Planifications
     </a>
     <a
       href="/settings"

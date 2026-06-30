@@ -8,6 +8,7 @@ const CHATS_DIR = path.join(TALOS_DIR, 'chats');
 const SETTINGS_FILE = path.join(TALOS_DIR, 'settings.json');
 const PROVIDERS_FILE = path.join(TALOS_DIR, 'providers.json');
 const MODELS_FILE = path.join(TALOS_DIR, 'models.json');
+const SCHEDULES_FILE = path.join(TALOS_DIR, 'schedules.json');
 
 // Helper to safely read a JSON file with a fallback default value
 async function readJsonFile<T>(filePath: string, defaultValue: T): Promise<T> {
@@ -101,6 +102,11 @@ export async function initDb(): Promise<void> {
 
   if (!existsSync(MODELS_FILE)) {
     await writeJsonFile(MODELS_FILE, []);
+  }
+
+  // Ensure schedules.json exists with initial empty array
+  if (!existsSync(SCHEDULES_FILE)) {
+    await writeJsonFile(SCHEDULES_FILE, []);
   }
 
   console.log('JSON database initialized at:', TALOS_DIR);
@@ -334,4 +340,88 @@ export async function getChatMode(id: string): Promise<string> {
   }
   const metadata = await readJsonFile<any>(metadataPath, null);
   return metadata?.mode || 'agent';
+}
+
+// ==========================================
+// SCHEDULED TASKS DATABASE METHODS
+// ==========================================
+
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  description: string;
+  schedule_type: 'cron' | 'once';
+  schedule_value: string;          // expression cron (ex: "0 9 * * 1-5") ou ISO date
+  instructions: string;            // instructions détaillées pour l'agent
+  provider_id: string;
+  model: string;
+  workspace?: string;              // dossier de travail optionnel (CWD pour l'exécution)
+  internet_access: boolean;        // accès aux outils internet (FetchWebPage, BrowseWebPage, GoogleSearch)
+  enabled: boolean;
+  created_at: number;
+  updated_at: number;
+  last_run: number | null;
+  last_result: string | null;      // résumé/titre de l'exécution
+  next_run: number | null;
+  total_runs: number;
+  chat_id: string;                 // id du chat dédié à cette tâche (créé à la création de la tâche)
+}
+
+export async function getSchedules(): Promise<ScheduledTask[]> {
+  return await readJsonFile<ScheduledTask[]>(SCHEDULES_FILE, []);
+}
+
+export async function saveSchedule(task: ScheduledTask): Promise<void> {
+  const schedules = await getSchedules();
+  const index = schedules.findIndex(s => s.id === task.id);
+  if (index !== -1) {
+    // Mise à jour
+    task.updated_at = Date.now();
+    schedules[index] = task;
+  } else {
+    // Création : générer un chat_id et créer le chat dédié
+    if (!task.chat_id) {
+      task.chat_id = `sched-${task.id}`;
+    }
+    task.created_at = Date.now();
+    task.updated_at = Date.now();
+    // Créer le chat dédié s'il n'existe pas déjà
+    const chatFolder = path.join(CHATS_DIR, task.chat_id);
+    if (!existsSync(chatFolder)) {
+      await createChat(task.chat_id, `📅 ${task.name}`);
+    }
+    schedules.push(task);
+  }
+  await writeJsonFile(SCHEDULES_FILE, schedules);
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  const schedules = await getSchedules();
+  const task = schedules.find(s => s.id === id);
+  const filteredSchedules = schedules.filter(s => s.id !== id);
+  await writeJsonFile(SCHEDULES_FILE, filteredSchedules);
+  
+  // Supprimer aussi le chat dédié s'il existe
+  if (task?.chat_id) {
+    const chatFolder = path.join(CHATS_DIR, task.chat_id);
+    if (existsSync(chatFolder)) {
+      try {
+        await fs.rm(chatFolder, { recursive: true, force: true });
+      } catch (e) {
+        console.error(`Failed to delete chat folder for schedule ${id}:`, e);
+      }
+    }
+  }
+}
+
+export async function updateScheduleStatus(
+  id: string,
+  updates: Partial<Pick<ScheduledTask, 'last_run' | 'last_result' | 'next_run' | 'total_runs'>>
+): Promise<void> {
+  const schedules = await getSchedules();
+  const index = schedules.findIndex(s => s.id === id);
+  if (index !== -1) {
+    schedules[index] = { ...schedules[index], ...updates, updated_at: Date.now() };
+    await writeJsonFile(SCHEDULES_FILE, schedules);
+  }
 }

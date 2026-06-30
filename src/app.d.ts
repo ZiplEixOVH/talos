@@ -57,6 +57,61 @@ declare global {
 				syntax: Array<{ syntax: string; description: string }>;
 			}>;
 			saveMedia: (chatId: string, filename: string, base64Data: string) => Promise<string>;
+
+			// ── Security Permission APIs ──────────────────────────────
+			respondSecurityPermission: (permissionId: string, approved: boolean) => void;
+			onSecurityRequestPermission: (callback: (data: {
+				permissionId: string;
+				chatId: string;
+				type: 'bash' | 'file_access';
+				toolName: string;
+				command?: string;
+				path?: string;
+				actionDescription: string;
+				agentName?: string;
+			}) => void) => () => void;
+
+			// ── Chat Title Generation ─────────────────────────────────
+			generateChatTitle: (chatId: string, firstMessage: string, providerId: string, model: string) => Promise<string | null>;
+
+			// ── Sub-Agent APIs ────────────────────────────────────────
+			onSubAgentsStarted: (callback: (data: { chatId: string; tasks: Array<{ agent_name: string; mission: string }> }) => void) => () => void;
+			onSubAgentStatus: (callback: (data: { chatId: string; agent_name: string; status: string; isDone: boolean; error?: string }) => void) => () => void;
+
+			// ── Scheduler APIs ────────────────────────────────────────
+			getSchedules: () => Promise<Array<{
+				id: string;
+				name: string;
+				description: string;
+				schedule_type: 'cron' | 'once';
+				schedule_value: string;
+				instructions: string;
+				provider_id: string;
+				model: string;
+				workspace?: string;
+				internet_access: boolean;
+				enabled: boolean;
+				created_at: number;
+				updated_at: number;
+				last_run: number | null;
+				last_result: string | null;
+				next_run: number | null;
+				total_runs: number;
+				chat_id: string;
+			}>>;
+			saveSchedule: (task: any) => Promise<boolean>;
+			deleteSchedule: (id: string) => Promise<boolean>;
+			runScheduleNow: (id: string) => Promise<boolean>;
+			onSchedulerTaskExecuted: (callback: (data: {
+				taskId: string;
+				chatId: string;
+				last_run: number;
+				last_result: string;
+				next_run: number | null;
+				total_runs: number;
+				error?: boolean;
+			}) => void) => () => void;
+			onSchedulerChatCreated: (callback: (data: { chatId: string }) => void) => () => void;
 		};
 	}
 }
