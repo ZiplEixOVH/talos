@@ -3,6 +3,8 @@
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
+	"description": "Talos is a desktop application that allows you to manage your OpenAI chats and tools.",
+	"author": "Baptiste Leroyer <leroyerbaptiste@gmail.com>",
 	"main": "dist-electron/main.js",
 	"scripts": {
 		"dev": "vite dev",
@@ -25,7 +27,9 @@
 		},
 		"linux": {
 			"target": ["AppImage", "deb"],
-			"category": "Utility"
+			"category": "Utility",
+			"desktopName": "talos",
+      		"syncDesktopName": true
 		}
 	},
 	"devDependencies": {
