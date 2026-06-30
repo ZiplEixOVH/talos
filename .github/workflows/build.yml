@@ -31,6 +31,8 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wine64 wine32
+          # Force la création de l'alias 'wine' pointant vers 'wine64'
+          sudo ln -s /usr/bin/wine64 /usr/bin/wine
 
       - name: Build Electron App
         run: |
