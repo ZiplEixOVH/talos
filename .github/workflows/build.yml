@@ -8,8 +8,16 @@ on:
 
 jobs:
   release:
-    name: Build for Windows & Linux
-    runs-on: ubuntu-latest
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: --linux
+          - os: windows-latest
+            platform: --win
 
     steps:
       - name: Checkout repository
@@ -26,17 +34,9 @@ jobs:
       - name: Build frontend (Vite / SvelteKit)
         run: bun run build
 
-      - name: Install Wine (for Windows build)
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine64 wine32
-          # Force la création de l'alias 'wine' pointant vers 'wine64'
-          sudo ln -s /usr/bin/wine64 /usr/bin/wine
-
       - name: Build Electron App
         run: |
-          bunx electron-builder --linux --win --x64
+          bunx electron-builder ${{ matrix.platform }} --x64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
