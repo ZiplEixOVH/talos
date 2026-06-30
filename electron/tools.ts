@@ -3,6 +3,7 @@ import path from 'path';
 import readline from 'readline';
 import { exec } from 'child_process';
 import ignore from 'ignore';
+import { BrowserWindow } from 'electron';
 import { getDbPath } from './db';
 
 export function isRestrictedPath(filePath: string): boolean {
@@ -371,6 +372,105 @@ export async function handleWebSearchTool(args: any): Promise<string> {
     return text;
   } catch (err: any) {
     return `error fetching page: ${err.message}`;
+  }
+}
+
+// Handler: Browse a webpage with a headless Electron browser (JavaScript enabled)
+export async function handleBrowseWebPageTool(args: any): Promise<string> {
+  const url = args.url;
+  if (!url || typeof url !== 'string') {
+    return 'error: url parameter is missing or not a string';
+  }
+
+  // Block internal/dangerous protocols
+  const lowerUrl = url.toLowerCase().trim();
+  if (
+    lowerUrl.startsWith('file://') ||
+    lowerUrl.startsWith('chrome://') ||
+    lowerUrl.startsWith('about://') ||
+    lowerUrl.startsWith('data:') ||
+    lowerUrl.startsWith('javascript:')
+  ) {
+    return 'error: browsing internal or dangerous protocols is not allowed';
+  }
+
+  const waitMs = typeof args.wait_ms === 'number' ? args.wait_ms : 2000;
+  const extractMode = typeof args.extract_mode === 'string' ? args.extract_mode : 'text';
+
+  if (extractMode !== 'text' && extractMode !== 'html') {
+    return 'error: extract_mode must be either "text" or "html"';
+  }
+
+  if (waitMs < 100) {
+    return 'error: wait_ms must be at least 100';
+  }
+
+  const MAX_WAIT = 30000;
+  if (waitMs > MAX_WAIT) {
+    return `error: wait_ms cannot exceed ${MAX_WAIT}ms`;
+  }
+
+  let win: BrowserWindow | null = null;
+  let globalTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    win = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        javascript: true,
+        images: false,
+        webSecurity: true,
+      },
+    });
+
+    // Global timeout security
+    const timeoutPromise = new Promise<string>((_, reject) => {
+      globalTimeout = setTimeout(() => {
+        reject(new Error(`Page load timed out after ${MAX_WAIT}ms`));
+      }, MAX_WAIT);
+    });
+
+    const loadPromise = win.loadURL(url);
+
+    await Promise.race([loadPromise, timeoutPromise]);
+
+    // Clear the timeout since the page loaded successfully
+    if (globalTimeout) {
+      clearTimeout(globalTimeout);
+      globalTimeout = null;
+    }
+
+    // Wait for JavaScript execution to complete
+    await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+
+    // Extract content based on mode
+    let content: string;
+    if (extractMode === 'html') {
+      content = await win.webContents.executeJavaScript(
+        'document.documentElement.outerHTML'
+      );
+    } else {
+      content = await win.webContents.executeJavaScript(
+        'document.body ? document.body.innerText : ""'
+      );
+    }
+
+    return content || '(empty page)';
+  } catch (err: any) {
+    return `error browsing page: ${err.message}`;
+  } finally {
+    if (globalTimeout) {
+      clearTimeout(globalTimeout);
+    }
+    if (win && !win.isDestroyed()) {
+      try {
+        win.close();
+      } catch (e) {
+        // ignore close errors
+      }
+    }
   }
 }
 
@@ -746,6 +846,7 @@ const primaryParamNames: Record<string, string> = {
   List: 'directory',
   Tree: 'directory',
   FetchWebPage: 'url',
+  BrowseWebPage: 'url',
   GoogleSearch: 'query',
   FileSearch: 'pattern',
   ReadRange: 'file_path',
@@ -788,6 +889,8 @@ export async function executeTool(name: string, args: any, chatId?: string): Pro
       return handleTreeTool(args);
     case 'FetchWebPage':
       return await handleWebSearchTool(args);
+    case 'BrowseWebPage':
+      return await handleBrowseWebPageTool(args);
     case 'GoogleSearch':
       return await handleGoogleSearchTool(args);
     case 'FileSearch':
@@ -933,6 +1036,32 @@ export function getOpenAITools() {
             url: {
               type: 'string',
               description: 'The URL of the webpage to fetch'
+            }
+          },
+          required: ['url']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'BrowseWebPage',
+        description: 'Load a webpage in a headless browser with JavaScript execution enabled, wait for it to render, and extract the visible text or full rendered HTML. Use this instead of FetchWebPage for Single Page Applications (SPAs), pages with dynamic JavaScript-rendered content, or any page where FetchWebPage returns incomplete/minimal content.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              description: 'The URL of the webpage to browse'
+            },
+            wait_ms: {
+              type: 'integer',
+              description: 'Time in milliseconds to wait after page load for JavaScript execution (default: 2000, min: 100, max: 30000)'
+            },
+            extract_mode: {
+              type: 'string',
+              enum: ['text', 'html'],
+              description: 'Extraction mode: "text" (default) returns visible text only, "html" returns the full rendered DOM as HTML'
             }
           },
           required: ['url']
