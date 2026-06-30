@@ -226,7 +226,7 @@
   }
 
   function loadSettingsFromLocalStorage() {
-    cwd = localStorage.getItem('talos_cwd') || '/Users/bleroyer/perso/talos';
+    cwd = localStorage.getItem('talos_cwd') || '.';
     activeProviderId = localStorage.getItem('talos_active_provider_id') || 'ollama';
     activeModel = localStorage.getItem('talos_active_model_name') || '';
     subagentsGlobalEnabled = true;

@@ -1041,7 +1041,15 @@ app.whenReady().then(async () => {
 
   try {
     await initDb();
-    const savedCwd = await getSetting('talos_cwd', '');
+    let savedCwd = await getSetting('talos_cwd', '');
+    if (!savedCwd) {
+      try {
+        savedCwd = app.getPath('home');
+        await setSetting('talos_cwd', savedCwd);
+      } catch (e) {
+        console.error('Failed to get home path for CWD:', e);
+      }
+    }
     if (savedCwd) {
       try {
         process.chdir(savedCwd);
