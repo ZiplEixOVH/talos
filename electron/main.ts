@@ -712,7 +712,7 @@ ipcMain.on('openai:chat-stream-start', async (event, providerId: string, model: 
     // Récupérer le mode du chat et compiler le prompt système associé
     const mode = await getChatMode(chatId);
     const systemPrompt = await getSystemPrompt(mode, chatId);
-    console.log(`[Prompt Manager] Final system prompt for chat ${chatId} (mode: ${mode}):\n========================================\n${systemPrompt}\n========================================`);
+    // console.log(`[Prompt Manager] Final system prompt for chat ${chatId} (mode: ${mode}):\n========================================\n${systemPrompt}\n========================================`);
     const globalSubagentsEnabled = (await getSetting('subagents_enabled', 'true')) === 'true';
     const chatSubagentsEnabled = (await getSetting(`chat_${chatId}_subagents_enabled`, 'true')) === 'true';
     const subagentsAllowed = globalSubagentsEnabled && chatSubagentsEnabled;
