@@ -9,23 +9,22 @@ on:
 jobs:
   release:
     name: Build for Windows & Linux
-    runs-on: ubuntu-latest #
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-size: 20
-          cache: 'npm'
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Build frontend (Vite / SvelteKit)
-        run: npm run build
+        run: bun run build
 
       - name: Install Wine (for Windows build)
         run: |
@@ -35,8 +34,7 @@ jobs:
 
       - name: Build Electron App
         run: |
-          # Compile pour Linux (AppImage / deb) et Windows (exe x64)
-          npx electron-builder --linux --win --x64
+          bunx electron-builder --linux --win --x64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
