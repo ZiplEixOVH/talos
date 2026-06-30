@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem, protocol, net } from 'electron';
 import { OpenAI } from 'openai';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import fsPromises from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
 import { initDb, getChats, createChat, deleteChat, renameChat, updateChatMode, getChatMode, getProviders, saveProvider, deleteProvider, getModels, addModel, deleteModel, getMessages, addMessage, saveMessages, getSetting, setSetting, getDbPath } from './db';
@@ -12,9 +12,55 @@ import { TEMPLATE_VARIABLES, TEMPLATE_SYNTAX_HELP } from './promptVariables';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'app',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true
+    }
+  }
+]);
+
 let mainWindow: BrowserWindow | null = null;
 
 const pendingPermissions = new Map<string, (approved: boolean) => void>();
+
+function registerAppProtocol() {
+  const buildDir = path.resolve(__dirname, '..', 'build');
+
+  protocol.handle('app', async (request) => {
+    try {
+      const url = new URL(request.url);
+      let pathname = decodeURIComponent(url.pathname);
+
+      if (pathname === '/' || pathname === '') {
+        pathname = '/index.html';
+      }
+
+      const requestedPath = path.normalize(path.join(buildDir, pathname));
+      if (!requestedPath.startsWith(buildDir)) {
+        return new Response('Forbidden', { status: 403 });
+      }
+
+      let filePath = requestedPath;
+      if (path.extname(filePath) === '' || !existsSync(filePath)) {
+        filePath = path.join(buildDir, 'index.html');
+      }
+
+      if (!existsSync(filePath)) {
+        return new Response('Not found', { status: 404 });
+      }
+
+      return net.fetch(pathToFileURL(filePath).toString());
+    } catch (error) {
+      console.error('Protocol handler error:', error);
+      return new Response('Internal Server Error', { status: 500 });
+    }
+  });
+}
 
 function askUserPermission(
   window: BrowserWindow | null,
@@ -114,9 +160,12 @@ function createWindow() {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     mainWindow.webContents.openDevTools();
   } else {
-    // SvelteKit génère son build dans le dossier /build (et non /dist)
-    mainWindow.loadFile(path.join(__dirname, '../build/index.html'));
+    mainWindow.loadURL('app://index.html');
   }
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('Renderer failed to load:', { errorCode, errorDescription, validatedURL });
+  });
 }
 
 // Enregistrement des IPC handlers pour SQLite
@@ -947,6 +996,8 @@ ipcMain.on('openai:chat-stream-start', async (event, providerId: string, model: 
 
 
 app.whenReady().then(async () => {
+  registerAppProtocol();
+
   try {
     await initDb();
     const savedCwd = await getSetting('talos_cwd', '');

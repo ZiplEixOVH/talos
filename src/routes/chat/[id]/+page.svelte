@@ -1042,6 +1042,8 @@
 
 <div 
   class="flex flex-col h-full w-full bg-transparent overflow-hidden relative"
+  role="region"
+  aria-label="Zone de conversation et depot de fichiers"
   onpaste={handlePaste}
   ondragover={(e) => { e.preventDefault(); isDragging = true; }}
   ondragleave={() => isDragging = false}
