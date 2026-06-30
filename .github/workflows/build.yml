@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Build on ${{ matrix.os }}
@@ -36,7 +39,7 @@ jobs:
 
       - name: Build Electron App
         run: |
-          bunx electron-builder ${{ matrix.platform }} --x64
+          bunx electron-builder ${{ matrix.platform }} --x64 --publish never
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
