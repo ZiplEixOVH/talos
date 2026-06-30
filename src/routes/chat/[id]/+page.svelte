@@ -1142,7 +1142,7 @@
                   <Pencil size={11} />
                 </button>
                 
-                <div class="bg-gradient-to-br from-indigo-600 to-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap shadow-md">
+                <div class="bg-gradient-to-br from-indigo-600 to-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-all shadow-md">
                   {msg.content}
                 </div>
               </div>
