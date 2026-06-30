@@ -27,9 +27,7 @@
 		},
 		"linux": {
 			"target": ["AppImage", "deb"],
-			"category": "Utility",
-			"desktopName": "talos",
-      		"syncDesktopName": true
+			"category": "Utility"
 		}
 	},
 	"devDependencies": {
